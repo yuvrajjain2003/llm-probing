@@ -1,5 +1,18 @@
 # CLAUDE.md — LLM CoT Probing Project (Goal 1)
 
+> **New session / new machine? Read [`.claude/README.md`](.claude/README.md) first.**
+> This file is the authority on **scope and working practices**. `.claude/` is the
+> authority on **current state and mechanics** -- what has actually been run
+> ([`STATE.md`](.claude/STATE.md)), how to bootstrap a cluster
+> ([`SETUP.md`](.claude/SETUP.md)), exact stage commands
+> ([`PIPELINE.md`](.claude/PIPELINE.md)), silent-failure traps
+> ([`GOTCHAS.md`](.claude/GOTCHAS.md)) and the agreed next steps
+> ([`NEXT.md`](.claude/NEXT.md)). Where the two disagree about what has been run,
+> trust `.claude/STATE.md`.
+>
+> **`runs/` is not in this repo.** All results described below and in `.claude/`
+> live on the original UNC box; on a fresh clone they must be regenerated.
+
 ## Research question
 
 Do internal representations at a chain-of-thought (CoT) prefix predict useful
@@ -277,5 +290,7 @@ baselines) should be flagged to the user before starting.
   copies of prompt/parse/normalize logic.
 - **Prefer resumable, config-logged jobs.** Assume any GPU run can be
   interrupted.
-- **Not a git repo.** There is no version control here; be careful with
-  destructive edits and don't rely on `git` to recover.
+- **Under git as of 2026-09-18.** Commit before risky edits rather than making
+  `.bak` copies (`archive/src_bak/` is the pre-git convention; don't grow it).
+  Run outputs, datasets, venvs and the vendored EasySteer checkout are NOT
+  tracked -- see `.gitignore` and `.claude/SETUP.md`.

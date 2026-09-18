@@ -26,8 +26,7 @@ data/**
 .venv/
 venv/
 .hf_home/
-.outlines_cache/
-.outlines_cache_yuvraj/
+.outlines_cache*/
 *.safetensors
 *.gguf
 *.pt
