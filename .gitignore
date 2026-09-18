@@ -43,6 +43,30 @@ __pycache__/
 .ipynb_checkpoints/
 .pytest_cache/
 
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# HF tokens etc.  Nothing here has ever held a credential; keep it that way.
+.env
+.env.*
+*.pem
+id_ed25519*
+id_rsa*
+.netrc
+.git-credentials
+
+# ── Cluster job artifacts (SLURM/PBS/nohup) ──────────────────────────────────
+slurm-*.out
+*.sbatch.out
+nohup.out
+core.[0-9]*
+
+# ── Stray large artifacts outside runs/ ──────────────────────────────────────
+# Defence in depth: a run written to a new top-level dir still won't be pushed.
+*.npy
+*.npz
+*.jsonl
+*.parquet
+!src/**/*.jsonl
+
 # ── Editor / OS ──────────────────────────────────────────────────────────────
 .DS_Store
 *.swp
