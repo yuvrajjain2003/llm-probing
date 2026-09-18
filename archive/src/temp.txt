@@ -1,0 +1,16 @@
+python3 -c "
+import pandas as pd
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained('/playpen-ssd/shared/pretrained_models/models--Qwen--Qwen3-4B')
+df = pd.read_csv('/playpen-ssd/yuvraj/llm-probing-project/activations/logiqa/master_log.csv')
+
+row = df[df['model_generation'].str.contains(r'\\\\boxed\{', regex=True)].iloc[1]
+print('Question:', row['question'])
+print()
+print('Full generation:')
+print(row['model_generation'])
+print()
+print('Extracted answer:', row['extracted_answer'])
+print('Is correct:', row['is_correct'])
+"

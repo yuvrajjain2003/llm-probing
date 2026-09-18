@@ -1,0 +1,691 @@
+#!/usr/bin/env python
+"""Evaluate a reasoning model on a benchmark dataset.
+
+Usage
+-----
+python src/run_eval.py \
+    --model deepseek-ai/DeepSeek-R1-Distill-Qwen-7B \
+    --dataset gsm8k \
+    --num-examples 100 \
+    --samples-per-example 10 \
+    --output-dir /playpen-ssd/yuvraj/llm-probing-project/runs/sweep
+"""
+from __future__ import annotations
+
+import os
+
+_CACHE = "/playpen-ssd/yuvraj/.cache"
+os.environ.setdefault("OUTLINES_CACHE_DIR",      f"{_CACHE}/outlines")
+os.environ.setdefault("HF_HOME",                 f"{_CACHE}/huggingface")
+os.environ.setdefault("VLLM_CACHE_ROOT",         f"{_CACHE}/vllm")
+os.environ.setdefault("TRITON_CACHE_DIR",        f"{_CACHE}/triton")
+os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", f"{_CACHE}/torchinductor")
+os.environ.setdefault("XDG_CONFIG_HOME",         "/playpen-ssd/yuvraj/.config")
+os.environ.setdefault("VLLM_NO_USAGE_STATS",     "1")
+
+import argparse
+import json
+import math
+import random
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+import math_verify
+import numpy as np
+import pandas as pd
+from datasets import load_dataset, load_from_disk
+from tqdm.auto import tqdm
+from transformers import AutoTokenizer
+from vllm import LLM, SamplingParams
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+FREEFORM_SYSTEM = """\
+You are solving a math word problem.
+
+Think through the problem carefully. Your response must end with a JSON object \
+on the final line that uses exactly this schema:
+{"Final Answer": "Answer"}
+
+Rules:
+- Put all reasoning before the JSON object.
+- Do not use markdown code fences.
+- Do not add any text after the JSON object.
+- Keep the final answer short (just the number or short phrase).\
+"""
+
+MC_SYSTEM = """\
+You are solving a multiple-choice question.
+
+Think through the problem carefully. Your response must end with a JSON object \
+on the final line that uses exactly this schema:
+{"Final Answer": "X"}
+
+where X is the single letter of the correct answer choice (e.g. A, B, C, D).
+
+Rules:
+- Put all reasoning before the JSON object.
+- Do not use markdown code fences.
+- Do not add any text after the JSON object.\
+"""
+
+
+def _apply_chat(system: str, user: str, tokenizer: AutoTokenizer) -> str | None:
+    if not getattr(tokenizer, "chat_template", None):
+        return None
+    try:
+        return tokenizer.apply_chat_template(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    except Exception:
+        return None
+
+
+def render_freeform_prompt(question: str, tokenizer: AutoTokenizer) -> str:
+    user = f"Solve this problem:\n\n{question.strip()}"
+    return _apply_chat(FREEFORM_SYSTEM, user, tokenizer) or (
+        f"System:\n{FREEFORM_SYSTEM}\n\nUser:\n{user}\n\nAssistant:\n"
+    )
+
+
+def render_mc_prompt(question: str, choices: list[str], tokenizer: AutoTokenizer) -> str:
+    user = f"Question:\n{question.strip()}\n\nChoices:\n" + "\n".join(choices)
+    return _apply_chat(MC_SYSTEM, user, tokenizer) or (
+        f"System:\n{MC_SYSTEM}\n\nUser:\n{user}\n\nAssistant:\n"
+    )
+
+
+# ── Parsing & normalisation ───────────────────────────────────────────────────
+
+_FINAL_ANSWER_RE = re.compile(
+    r'\{\s*"Final Answer"\s*:\s*(?P<value>"(?:\\.|[^"\\])*"|[^{}]+?)\s*\}',
+    flags=re.DOTALL,
+)
+# A bare "ANSWER: B" line -- the convention GPQA-Diamond's own eval harness uses,
+# which the model reproduces instead of the JSON schema it was asked for. Anchored to
+# a line start so running prose ("...my answer: b is wrong") cannot trigger it, and
+# limited to A-E so it covers 4-option (GPQA/OBQA/MMLU) and 5-option (AquaRAT) sets
+# without ever matching a numeric free-form answer.
+_ANSWER_LINE_RE = re.compile(r"^\s*\**\s*answer\s*\**\s*:\s*\**\s*([A-E])\b",
+                             flags=re.IGNORECASE | re.MULTILINE)
+_NUMERIC_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_LETTER_RE  = re.compile(r"\b([A-Ja-j])\b")
+_BOXED_START_RE = re.compile(r"\\boxed\{")
+
+
+def _clean_reasoning(text: str) -> str:
+    text = re.sub(r"^<think>\s*", "", (text or "").strip())
+    return re.sub(r"\s*</think>\s*$", "", text).strip()
+
+
+def _last_boxed(text: str) -> tuple[int, str] | None:
+    """(start_offset, content) of the last brace-balanced ``\\boxed{...}`` in text.
+
+    Brace-balanced because LaTeX answers nest braces (``\\boxed{\\frac{1}{2}}``), so
+    a non-greedy regex would stop at the first inner ``}``. Returns the start offset
+    too so the caller can treat everything before it as the reasoning span.
+    """
+    found = None
+    for m in _BOXED_START_RE.finditer(text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth > 0:
+            depth += 1 if text[i] == "{" else -1 if text[i] == "}" else 0
+            i += 1
+        if depth == 0:
+            found = (m.start(), text[m.end():i - 1])
+    return found
+
+
+def _latex_literal(quoted_value: str) -> str:
+    """Recover the literal text of a JSON string value that contains LaTeX.
+
+    LaTeX inside a JSON string is not valid JSON, in two different ways:
+      loud   -- ``\\sqrt``/``\\left``/``\\pi`` raise "Invalid \\escape";
+      silent -- ``\\frac``/``\\beta``/``\\theta`` ARE valid JSON escapes and decode
+                to control characters (``\\frac{1}{2}`` -> formfeed + "rac{1}{2}"),
+                so json.loads "succeeds" while corrupting the answer.
+    Both are wrong for a math answer, so take the regex-captured text verbatim and
+    undo only the one escape the model plausibly meant as an escape: ``\\"``.
+    """
+    return quoted_value.strip().strip('"').replace('\\"', '"')
+
+
+def parse_output(raw: str) -> dict[str, Any]:
+    raw = raw or ""
+    matches = list(_FINAL_ANSWER_RE.finditer(raw))
+    if matches:
+        m = matches[-1]
+        reasoning = _clean_reasoning(raw[: m.start()])
+        try:
+            parsed = json.loads(m.group(0))
+            # Keep the unstripped value for the control-char test below: .strip()
+            # would remove a leading formfeed/tab, hiding the very damage we check for
+            # ("\frac{1}{2}" -> "\x0crac{1}{2}" -> strips to a clean-looking "rac{1}{2}").
+            decoded_raw = str(parsed.get("Final Answer", ""))
+            decoded = decoded_raw.strip()
+            # json.loads succeeded, but it may have silently eaten LaTeX: \f, \b, \n,
+            # \t, \r are legal JSON escapes, so "\frac{1}{2}" decodes to formfeed +
+            # "rac{1}{2}". A control character in a final answer always means that
+            # happened -- a genuine answer never contains one. Properly escaped input
+            # ("\\(" -> "\(") decodes clean and is kept, so this only rescues damage.
+            if any(ord(c) < 0x20 for c in decoded_raw):
+                return dict(reasoning=reasoning,
+                            final_answer=_latex_literal(m.group("value")) or None,
+                            parse_success=True, parse_error="latex_literal_recovered",
+                            raw_completion=raw)
+            return dict(reasoning=reasoning, final_answer=decoded or None,
+                        parse_success=True, parse_error=None, raw_completion=raw)
+        except json.JSONDecodeError as e:
+            # Unescaped LaTeX (\sqrt, \left, \pi) is not valid JSON at all. The regex
+            # already captured the exact text, so recover it verbatim instead of
+            # discarding a sample whose answer is perfectly readable.
+            val = _latex_literal(m.group("value"))
+            if val:
+                return dict(reasoning=reasoning, final_answer=val,
+                            parse_success=True, parse_error="latex_literal_recovered",
+                            raw_completion=raw)
+            return dict(reasoning=reasoning, final_answer=None,
+                        parse_success=False, parse_error=str(e), raw_completion=raw)
+    # Fallback: models trained on math-competition data (MATH-500, AIME-style)
+    # often ignore the requested JSON schema and emit the \boxed{...} convention
+    # they were trained on instead. That still names an unambiguous final answer,
+    # so recover it rather than discarding it as an unparseable sample -- but mark
+    # it distinctly (parse_error stays diagnostic) so the parser-failure catalog can
+    # still see how often this happens.
+    boxed = _last_boxed(raw)
+    if boxed is not None:
+        start, content = boxed
+        reasoning = _clean_reasoning(raw[:start])
+        return dict(reasoning=reasoning, final_answer=content.strip() or None,
+                    parse_success=True, parse_error="used_boxed_fallback", raw_completion=raw)
+    # Last resort: a bare "ANSWER: X" line. Reached only when neither the JSON schema
+    # nor \boxed{} is present, so it can never override a better-formed answer -- it
+    # strictly converts would-be failures into answers. The letter is unambiguous, and
+    # without this ~36% of GPQA's continuations were discarded over punctuation alone.
+    # Marked distinctly so the parser-failure catalog still counts how often it fires.
+    ans = list(_ANSWER_LINE_RE.finditer(raw))
+    if ans:
+        m = ans[-1]
+        return dict(reasoning=_clean_reasoning(raw[: m.start()]),
+                    final_answer=m.group(1).upper(),
+                    parse_success=True, parse_error="used_answer_line_fallback",
+                    raw_completion=raw)
+    return dict(reasoning=_clean_reasoning(raw), final_answer=None,
+                parse_success=False, parse_error="No JSON found", raw_completion=raw)
+
+
+def normalize_freeform(text: Any) -> str | None:
+    if text is None:
+        return None
+    v = re.sub(r"\s+", " ",
+               str(text).strip().replace("$", "").replace(",", "").rstrip(".").strip("`"))
+    nums = _NUMERIC_RE.findall(v)
+    if nums:
+        n = nums[-1]
+        return n[:-2] if n.endswith(".0") else n
+    return v.lower() or None
+
+
+def normalize_mc(text: Any) -> str | None:
+    if text is None:
+        return None
+    v = str(text).strip()
+    m = _LETTER_RE.search(v)
+    if m:
+        return m.group(1).upper()
+    return v[0].upper() if v and v[0].isalpha() else None
+
+
+def _normalize_math(text: Any) -> str | None:
+    """Best-effort canonical string for a symbolic answer, for entropy/mode grouping.
+
+    Not the correctness check (see ``_is_correct_math``) -- two differently-written
+    but equal expressions can still land on different canonical strings here. That
+    would show up as slightly inflated answer_entropy_bits, not as a wrong is_correct
+    label, so it is a grouping-fidelity caveat rather than a grading bug.
+    """
+    if text is None:
+        return None
+    v = str(text).strip()
+    if not v:
+        return None
+    try:
+        parsed = math_verify.parse(f"\\boxed{{{v}}}")
+        return str(parsed[0]) if parsed else v.lower()
+    except Exception:
+        return v.lower()
+
+
+def _is_correct_math(pred_text: Any, gold_text: Any) -> bool:
+    """Symbolic equivalence via math-verify (handles 1/2 == 0.5 == \\frac{1}{2}, etc.)."""
+    if pred_text is None or gold_text is None:
+        return False
+    try:
+        pred_p = math_verify.parse(f"\\boxed{{{pred_text}}}")
+        gold_p = math_verify.parse(f"\\boxed{{{gold_text}}}")
+        if not pred_p or not gold_p:
+            return False
+        return bool(math_verify.verify(gold_p, pred_p))
+    except Exception:
+        return False
+
+
+def grade(cfg: dict, pred_text: Any, gold_text: Any) -> tuple[str | None, str | None, bool]:
+    """(pred_norm, gold_norm, is_correct) for a dataset's grading scheme.
+
+    Default ("exact", every dataset through mmlu_pro_math/arc_challenge/openbookqa):
+    normalize_mc/normalize_freeform then string equality -- unchanged from before this
+    function existed. "math_verify" (MATH-500) uses symbolic equivalence for
+    is_correct instead, since answers are LaTeX expressions, not bare numbers.
+    """
+    if cfg.get("grading") == "math_verify":
+        return (_normalize_math(pred_text), _normalize_math(gold_text),
+                _is_correct_math(pred_text, gold_text))
+    normalize = normalize_mc if cfg["is_mc"] else normalize_freeform
+    pred_norm = normalize(pred_text)
+    gold_norm = normalize(gold_text)
+    return pred_norm, gold_norm, bool(pred_norm is not None and pred_norm == gold_norm)
+
+
+# ── Dataset registry ──────────────────────────────────────────────────────────
+
+_GSM8K_ANS_RE = re.compile(r"####\s*(.+)")
+
+
+def _gsm8k_gold(ex: dict) -> str:
+    m = _GSM8K_ANS_RE.search(ex["answer"])
+    return m.group(1).strip() if m else ""
+
+
+def _arc_gold(ex: dict) -> str:
+    k = ex["answerKey"].strip()
+    return chr(ord("A") + int(k) - 1).upper() if k.isdigit() else k.upper()
+
+
+def _arc_choices(ex: dict) -> list[str]:
+    return [f"{l}) {t}" for l, t in zip(ex["choices"]["label"], ex["choices"]["text"])]
+
+
+def _mathqa_choices(ex: dict) -> list[str]:
+    return [o.strip() for o in re.split(r",\s*(?=[a-e]\s*\))", ex["options"])]
+
+
+def _mmlu_choices(ex: dict) -> list[str]:
+    return [f"{chr(65 + i)}) {t}" for i, t in enumerate(ex["options"])]
+
+
+def _gpqa_shuffled(ex: dict) -> list[str]:
+    """The 4 GPQA options in a per-question-deterministic shuffled order.
+
+    The raw fields always list the correct answer first (``Correct Answer``, then
+    ``Incorrect Answer 1/2/3``), so an unshuffled MC prompt would leak the answer via
+    position. ``choices()`` and ``gold()`` are called independently by
+    ``load_examples`` with no shared state, so the shuffle is seeded from the
+    question's own Record ID -- both calls reproduce the identical order.
+    """
+    # Several rows carry trailing newlines in the answer text ("10^-8 eV\n"), which
+    # would render as ragged choice lines in the prompt; strip before shuffling so
+    # the gold lookup below compares against the same cleaned text.
+    opts = [str(ex["Correct Answer"]).strip(), str(ex["Incorrect Answer 1"]).strip(),
+            str(ex["Incorrect Answer 2"]).strip(), str(ex["Incorrect Answer 3"]).strip()]
+    order = list(range(4))
+    random.Random(ex["Record ID"]).shuffle(order)
+    return [opts[i] for i in order]
+
+
+def _gpqa_choices(ex: dict) -> list[str]:
+    shuffled = _gpqa_shuffled(ex)
+    return [f"{chr(65 + i)}) {t}" for i, t in enumerate(shuffled)]
+
+
+def _gpqa_gold(ex: dict) -> str:
+    shuffled = _gpqa_shuffled(ex)
+    # .strip() to match _gpqa_shuffled's cleaning -- the raw field can carry a
+    # trailing newline, which would make this lookup miss and raise ValueError.
+    return chr(65 + shuffled.index(str(ex["Correct Answer"]).strip()))
+
+
+# Each entry: hf_name, hf_config, split, is_mc,
+#             question(ex), gold(ex), choices(ex)|None, filter_fn|None
+DATASETS: dict[str, dict] = {
+    "gsm8k": dict(
+        hf_name="openai/gsm8k", hf_config="main", split="test", is_mc=False,
+        question=lambda ex: ex["question"],
+        gold=_gsm8k_gold,
+        choices=None, filter_fn=None,
+    ),
+    "aqua_rat": dict(
+        hf_name="aqua_rat", hf_config="raw", split="test", is_mc=True,
+        question=lambda ex: ex["question"],
+        gold=lambda ex: ex["correct"].strip().upper(),
+        choices=lambda ex: ex["options"],
+        filter_fn=None,
+    ),
+    "mmlu_college_math": dict(
+        hf_name="cais/mmlu", hf_config="college_mathematics", split="test", is_mc=True,
+        question=lambda ex: ex["question"],
+        gold=lambda ex: "ABCD"[int(ex["answer"])],
+        choices=lambda ex: [f"{l}) {t}" for l, t in zip("ABCD", ex["choices"])],
+        filter_fn=None,
+    ),
+    "mmlu_pro_math": dict(
+        hf_name="TIGER-Lab/MMLU-Pro", hf_config=None, split="test", is_mc=True,
+        question=lambda ex: ex["question"],
+        gold=lambda ex: ex["answer"].strip().upper(),
+        choices=_mmlu_choices,
+        filter_fn=lambda ex: ex["category"] == "math",
+    ),
+    "arc_challenge": dict(
+        hf_name="allenai/ai2_arc", hf_config="ARC-Challenge", split="test", is_mc=True,
+        question=lambda ex: ex["question"],
+        gold=_arc_gold,
+        choices=_arc_choices,
+        filter_fn=None,
+    ),
+    "openbookqa": dict(
+        hf_name="allenai/openbookqa", hf_config="main", split="test", is_mc=True,
+        question=lambda ex: ex["question_stem"],
+        gold=lambda ex: ex["answerKey"].strip().upper(),
+        choices=lambda ex: [f"{l}) {t}"
+                            for l, t in zip(ex["choices"]["label"], ex["choices"]["text"])],
+        filter_fn=None,
+    ),
+    "math500": dict(
+        hf_name="HuggingFaceH4/MATH-500", hf_config=None, split="test", is_mc=False,
+        question=lambda ex: ex["problem"],
+        gold=lambda ex: ex["answer"],
+        choices=None, filter_fn=None,
+        # Answers are LaTeX expressions (~37% aren't bare numbers: \frac{14}{3},
+        # 3\sqrt{13}, etc.) -- the numeric-extraction freeform normalizer would
+        # silently mis-grade those, so this dataset grades via symbolic equivalence.
+        grading="math_verify",
+    ),
+    "aime2025": dict(
+        hf_name="math-ai/aime25", hf_config=None, split="test", is_mc=False,
+        question=lambda ex: ex["problem"],
+        gold=lambda ex: ex["answer"],
+        choices=None, filter_fn=None,
+        # Answers are always plain integers 0-999 (AIME convention), so the default
+        # numeric freeform normalizer is exact here -- no grading="math_verify" needed.
+    ),
+    "gpqa_diamond": dict(
+        hf_name="Idavidrein/gpqa", hf_config="gpqa_diamond", split="train", is_mc=True,
+        question=lambda ex: ex["Question"],
+        gold=_gpqa_gold,
+        choices=_gpqa_choices,
+        filter_fn=None,
+    ),
+}
+
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+
+
+def load_examples(dataset_name: str, n: int, seed: int) -> pd.DataFrame:
+    cfg = DATASETS[dataset_name]
+
+    # Prefer the local copy written by src/setup/download_dataset.py; it is already
+    # filtered, so filter_fn only applies to the Hub path.
+    local_dir = DATA_DIR / dataset_name
+    if local_dir.exists():
+        ds = load_from_disk(str(local_dir))[cfg["split"]]
+    else:
+        load_kw: dict = {"split": cfg["split"]}
+        if cfg["hf_config"]:
+            ds = load_dataset(cfg["hf_name"], cfg["hf_config"], **load_kw)
+        else:
+            ds = load_dataset(cfg["hf_name"], **load_kw)
+        if cfg["filter_fn"]:
+            ds = ds.filter(cfg["filter_fn"])
+
+    n = min(n, len(ds))
+    rng = np.random.default_rng(seed)
+    indices = sorted(rng.choice(len(ds), size=n, replace=False).tolist())
+    selected = ds.select(indices)
+
+    rows = []
+    for i, (idx, ex) in enumerate(zip(indices, selected)):
+        ch = cfg["choices"](ex) if cfg["choices"] else None
+        rows.append(dict(
+            example_id=i,
+            dataset_index=int(idx),
+            question=cfg["question"](ex),
+            gold_answer=str(cfg["gold"](ex)),
+            choices=json.dumps(ch) if ch is not None else None,
+        ))
+    return pd.DataFrame(rows)
+
+
+# ── I/O helpers ───────────────────────────────────────────────────────────────
+
+def _append_jsonl(path: Path, records: list[dict]) -> None:
+    with path.open("a", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def _load_jsonl(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def _rtokens(text: str, tokenizer: AutoTokenizer) -> int:
+    return len(tokenizer.encode(text or "", add_special_tokens=False))
+
+
+def _entropy(vals: list[str]) -> float:
+    if not vals:
+        return float("nan")
+    total = len(vals)
+    return float(-sum((c / total) * math.log2(c / total)
+                      for c in Counter(vals).values()))
+
+
+# ── Core evaluation loop ──────────────────────────────────────────────────────
+
+def run_eval(args: argparse.Namespace) -> None:
+    model_slug = args.model.split("/")[-1]
+    # Layout: run_dir/{raw, config, labels, robustness} -- see status_report for why.
+    # raw/ = what the model produced, unprocessed. config/ = run settings. labels/ =
+    # derived per-checkpoint tables. overall_summary.json stays at the top: it's the
+    # one file to check first. robustness/ is written separately by robustness.py.
+    run_dir = Path(args.output_dir) / args.dataset / model_slug
+    raw_dir, config_dir, labels_dir = run_dir / "raw", run_dir / "config", run_dir / "labels"
+    for d in (raw_dir, config_dir, labels_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    jsonl_path = raw_dir / "sample_records.jsonl"
+
+    print(f"\n{'='*60}")
+    print(f"  dataset : {args.dataset}")
+    print(f"  model   : {model_slug}")
+    print(f"  run dir : {run_dir}")
+    print(f"{'='*60}\n")
+
+    cfg = DATASETS[args.dataset]
+    is_mc = cfg["is_mc"]
+
+    print("Loading dataset …")
+    examples = load_examples(args.dataset, args.num_examples, args.seed)
+    examples.to_csv(raw_dir / "examples.csv", index=False)
+    print(f"  {len(examples)} examples loaded.")
+
+    print("Loading model …")
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
+    llm = LLM(
+        model=args.model,
+        tensor_parallel_size=args.tensor_parallel_size,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        max_model_len=args.max_model_len,
+        trust_remote_code=False,
+    )
+    sampling_params = SamplingParams(
+        temperature=args.temperature,
+        top_p=args.top_p,
+        max_tokens=args.max_tokens,
+    )
+
+    # Resume logic
+    existing = _load_jsonl(jsonl_path)
+    completed: dict[int, int] = {}
+    if not existing.empty and args.resume:
+        completed = existing.groupby("example_id")["sample_id"].count().astype(int).to_dict()
+        print(f"  Resuming: {len(existing)} records already saved.")
+    elif jsonl_path.exists() and not args.resume:
+        raise FileExistsError(
+            f"{jsonl_path} already exists. Pass --resume or delete the run dir."
+        )
+
+    # Save config
+    (config_dir / "run_config.json").write_text(
+        json.dumps(vars(args), indent=2, default=str), encoding="utf-8"
+    )
+
+    # Sampling loop
+    for _, row in tqdm(examples.iterrows(), total=len(examples), desc="examples"):
+        eid = int(row["example_id"])
+        already_done = int(completed.get(eid, 0))
+        remaining = args.samples_per_example - already_done
+        if remaining <= 0:
+            continue
+
+        choices = json.loads(row["choices"]) if row["choices"] else None
+        prompt = (render_mc_prompt(row["question"], choices, tokenizer) if is_mc
+                  else render_freeform_prompt(row["question"], tokenizer))
+        _, gold_norm, _ = grade(cfg, None, row["gold_answer"])
+
+        next_sid = already_done
+        while remaining > 0:
+            batch = min(args.sample_batch_size, remaining)
+            outputs = llm.generate([prompt] * batch, sampling_params)
+
+            records = []
+            for out in outputs:
+                raw = out.outputs[0].text
+                parsed = parse_output(raw)
+                pred_norm, _, is_correct = grade(cfg, parsed["final_answer"], row["gold_answer"])
+                records.append(dict(
+                    dataset=args.dataset,
+                    model=args.model,
+                    example_id=eid,
+                    dataset_index=int(row["dataset_index"]),
+                    sample_id=next_sid,
+                    question=row["question"],
+                    gold_answer=row["gold_answer"],
+                    gold_answer_norm=gold_norm,
+                    raw_completion=raw,
+                    reasoning=parsed["reasoning"],
+                    final_answer=parsed["final_answer"],
+                    final_answer_norm=pred_norm,
+                    is_correct=is_correct,
+                    parse_success=parsed["parse_success"],
+                    parse_error=parsed["parse_error"],
+                    reasoning_tokens=_rtokens(parsed["reasoning"], tokenizer),
+                    completion_chars=len(raw),
+                ))
+                next_sid += 1
+
+            _append_jsonl(jsonl_path, records)
+            remaining -= batch
+
+    # Metrics
+    all_df = _load_jsonl(jsonl_path)
+
+    ex_metrics = build_example_metrics(all_df)
+    ex_metrics.to_csv(labels_dir / "example_metrics.csv", index=False)
+
+    summary = dict(
+        dataset=args.dataset,
+        model=args.model,
+        model_slug=model_slug,
+        num_examples=int(ex_metrics["example_id"].nunique()),
+        samples_per_example=args.samples_per_example,
+        total_samples=len(all_df),
+        pass_at_1=float(all_df["is_correct"].mean()),
+        mean_fraction_correct=float(ex_metrics["fraction_correct"].mean()),
+        majority_vote_accuracy=float(ex_metrics["mode_correct"].mean()),
+        mean_answer_entropy_bits=float(ex_metrics["answer_entropy_bits"].mean()),
+        mean_reasoning_tokens=float(ex_metrics["mean_reasoning_tokens"].mean()),
+        parse_success_rate=float(all_df["parse_success"].mean()),
+    )
+    (run_dir / "overall_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
+
+    print(f"\n{'─'*60}")
+    print(f"  pass@1 accuracy  : {summary['pass_at_1']:.1%}")
+    print(f"  majority vote    : {summary['majority_vote_accuracy']:.1%}")
+    print(f"  mean entropy     : {summary['mean_answer_entropy_bits']:.3f} bits")
+    print(f"  mean reasoning   : {summary['mean_reasoning_tokens']:.0f} tokens")
+    print(f"  parse success    : {summary['parse_success_rate']:.1%}")
+    print(f"  saved to         : {run_dir}")
+    print(f"{'─'*60}\n")
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
+def summarise_example(grp: "pd.DataFrame") -> "pd.Series":
+    """Per-example roll-up over that example's samples (mode, entropy, lengths)."""
+    valid = [a for a in grp["final_answer_norm"].dropna() if str(a).strip()]
+    mode_cnt = Counter(valid)
+    mode_ans = mode_cnt.most_common(1)[0][0] if mode_cnt else None
+    gold_n = grp["gold_answer_norm"].iloc[0]
+    return pd.Series(dict(
+        dataset_index=int(grp["dataset_index"].iloc[0]),
+        question=grp["question"].iloc[0],
+        gold_answer=grp["gold_answer"].iloc[0],
+        num_samples=len(grp),
+        fraction_correct=float(grp["is_correct"].mean()),
+        parse_success_rate=float(grp["parse_success"].mean()),
+        answer_entropy_bits=_entropy(valid),
+        mean_reasoning_tokens=float(grp["reasoning_tokens"].mean()),
+        median_reasoning_tokens=float(grp["reasoning_tokens"].median()),
+        std_reasoning_tokens=float(grp["reasoning_tokens"].std(ddof=0)),
+        unique_answers=len(set(valid)),
+        mode_answer=mode_ans,
+        mode_correct=bool(mode_ans is not None and mode_ans == gold_n),
+    ))
+
+
+def build_example_metrics(all_df: "pd.DataFrame") -> "pd.DataFrame":
+    """example_metrics table from raw sample records.
+
+    Module-level so ``reparse.py`` can rebuild these after a parser change without
+    duplicating the metric definitions.
+    """
+    return all_df.groupby("example_id", sort=True).apply(summarise_example).reset_index()
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--model",    required=True, help="HuggingFace model ID")
+    p.add_argument("--dataset",  required=True, choices=list(DATASETS))
+    p.add_argument("--output-dir",          default=str(Path(__file__).resolve().parents[1] / "runs" / "sweep"))
+    p.add_argument("--num-examples",        type=int,   default=100)
+    p.add_argument("--samples-per-example", type=int,   default=10)
+    p.add_argument("--sample-batch-size",   type=int,   default=100)
+    p.add_argument("--seed",                type=int,   default=42)
+    p.add_argument("--temperature",         type=float, default=0.7)
+    p.add_argument("--top-p",               type=float, default=0.95)
+    p.add_argument("--max-tokens",          type=int,   default=4096)
+    p.add_argument("--max-model-len",       type=int,   default=16384,
+                   help="cap the KV-cache context; the model advertises 131072, "
+                        "which forces a huge cache. Our prompts are short + "
+                        "max-tokens<=8192, so 16384 is ample and lets the engine "
+                        "run at low gpu-memory-utilization with high concurrency.")
+    p.add_argument("--tensor-parallel-size",type=int,   default=1)
+    p.add_argument("--gpu-memory-utilization", type=float, default=0.9)
+    p.add_argument("--resume",    action="store_true",  default=True)
+    p.add_argument("--no-resume", dest="resume", action="store_false")
+    args = p.parse_args()
+    run_eval(args)
+
+
+if __name__ == "__main__":
+    main()
