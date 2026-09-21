@@ -9,17 +9,22 @@ Tasks here are (num_shards, shard_index) pairs. num_shards=32 with index 0,8,16,
 covers exactly the examples of the old 8-way shard 0 (id%8==0), split four ways --
 so leftover work from a crashed shard can be spread without regenerating anything
 (continuations.py resume scans every shard file).
+
+Single-box tool: it assumes every GPU on the machine is yours and finds free ones
+by scanning /proc. Under SLURM use a job array instead (runs/gpqa25/), which lets
+the scheduler play this role.
 """
 from __future__ import annotations
 
 import argparse
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
-REPO = Path("/playpen-ssd/shared/llm-probing-project")
-PY = "/playpen-ssd/yuvraj/.venv/bin/python"
+REPO = Path(__file__).resolve().parents[2]
+PY = os.environ.get("PY") or sys.executable
 
 
 def gpu_busy(gpu: int) -> bool:

@@ -126,7 +126,7 @@ def _bar_grouped(df: pd.DataFrame, metric: str, ylabel: str, title: str, out: Pa
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--sweep-dir", default="/playpen-ssd/yuvraj/llm-probing-project/runs/sweep")
+    p.add_argument("--sweep-dir", default=str(Path(__file__).resolve().parents[2] / "runs" / "sweep"))
     args = p.parse_args()
 
     sweep_dir = Path(args.sweep_dir)

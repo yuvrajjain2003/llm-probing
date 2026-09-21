@@ -2,9 +2,8 @@
 # Cover the gap left by old shard 4 (example_id%8==4), split 8 ways.
 # num_shards=64 indices {4,12,20,28,36,44,52,60} == exactly id%8==4.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 "$PY" src/generation/gpu_pool.py \
   --run-dir runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B \
   --dataset gpqa_diamond --k 25 \

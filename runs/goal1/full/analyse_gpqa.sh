@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 R=runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
 echo "[merge]";      "$PY" src/generation/merge_shards.py --run-dir "$R"
 echo "[labels]";     "$PY" src/analysis/labels.py --continuations "$R/raw/continuations.jsonl"

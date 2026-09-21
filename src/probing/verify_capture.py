@@ -23,9 +23,14 @@ import numpy as np
 
 # src/ on the path, so `generation.*` resolves when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-OUT = Path("runs/goal2/_verify"); OUT.mkdir(parents=True, exist_ok=True)
+# Both overridable so this can run against any base run (the defaults are the
+# original box's paths, which do not exist on a fresh clone). The test CoT is the
+# shortest terminated one in <VERIFY_RUN_DIR>/raw/sample_records.jsonl, so this needs
+# a MERGED base run (merge_shards.py) to exist first.
+OUT = Path(os.environ.get("VERIFY_OUT", "runs/goal2/_verify")); OUT.mkdir(parents=True, exist_ok=True)
 MODEL = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-GPQA = Path("runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B")
+GPQA = Path(os.environ.get("VERIFY_RUN_DIR",
+                           "runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B"))
 
 
 def build_case():

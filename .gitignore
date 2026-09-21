@@ -23,9 +23,11 @@ data/**
 
 # ── Virtualenvs / caches / model weights ─────────────────────────────────────
 .venv-easysteer/
+.venv-goal1/
 .venv/
 venv/
 .hf_home/
+.work/
 .outlines_cache*/
 *.safetensors
 *.gguf
@@ -40,6 +42,7 @@ archive/results/
 __pycache__/
 *.py[cod]
 *.egg-info/
+env/shims/*/build/
 .ipynb_checkpoints/
 .pytest_cache/
 

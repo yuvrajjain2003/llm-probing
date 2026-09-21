@@ -5,9 +5,8 @@
 # fits one A6000 with room for KV, so sharding a model that already fits would
 # only add an all-reduce per layer.
 set -euo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 
 DATASET="$1"; NUM_EX="$2"; MAXTOK="$3"; MAXLEN="$4"; NSHARD="${5:-8}"
 MODEL="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"

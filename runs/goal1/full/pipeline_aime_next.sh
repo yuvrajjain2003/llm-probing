@@ -11,9 +11,8 @@
 # a continuation costs ~3000 tokens, so K=100 is ~18h and K=300 is ~54h on 8 GPUs.
 # If K* exceeds KCAP the run is knowingly under-powered and says so in the log.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 KCAP=${KCAP:-100}
 
 A25=runs/goal1/full/aime2025/DeepSeek-R1-Distill-Qwen-7B

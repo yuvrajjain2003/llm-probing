@@ -8,9 +8,8 @@
 #
 # All stages resumable (append-only JSONL + resume-by-count); re-running continues.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 
 RUN=runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
 LOG=runs/goal1/full/pipeline_gpqa.log

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 "$PY" src/generation/gpu_pool.py \
   --run-dir runs/goal1/full/aime2025/DeepSeek-R1-Distill-Qwen-7B \
   --dataset aime2025 --k 100 \

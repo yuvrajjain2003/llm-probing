@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyairports"
+# "+local" satisfies the unconstrained `pyairports` requirement of outlines and the
+# `pyairports==0.0.1` constraint in env/requirements-goal1.txt (PEP 440 ignores local
+# labels when the specifier has none), so pip keeps this instead of fetching PyPI's.
+version = "0.0.1+local"
+description = "Local stand-in for the airports data outlines 0.0.46 imports; see README"
+requires-python = ">=3.8"
+
+[tool.setuptools]
+packages = ["pyairports"]

@@ -9,9 +9,8 @@
 #                             keeps every group schedulable; prefix caching keeps
 #                             the shared prefix hot across the sub-requests.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 
 DATASET="$1"; K="$2"; MAXTOK="$3"; MAXLEN="$4"; NSHARD="${5:-8}"; GPU0="${6:-0}"
 MODEL="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"

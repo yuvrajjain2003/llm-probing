@@ -4,9 +4,8 @@
 # Mitigation: smaller request groups + lower concurrency => less preemption.
 # Resumable, so this picks up exactly where each shard stopped.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 RUN=runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
 for i in 0 3; do
   CUDA_VISIBLE_DEVICES=$i "$PY" src/generation/continuations.py \

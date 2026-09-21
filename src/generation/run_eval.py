@@ -8,19 +8,21 @@ python src/generation/run_eval.py \
     --dataset gsm8k \
     --num-examples 100 \
     --samples-per-example 10 \
-    --output-dir /playpen-ssd/yuvraj/llm-probing-project/runs/sweep
+    --output-dir runs/sweep
 """
 from __future__ import annotations
 
 import os
 
-_CACHE = "/playpen-ssd/yuvraj/.cache"
+# Fallbacks for when env.sh has not been sourced. env.sh exports all of these
+# (rooted at $WORK_DIR), and setdefault means anything already set wins.
+_CACHE = os.environ.get("CACHE_ROOT") or os.path.join(os.path.expanduser("~"), ".cache", "llm-probing")
 os.environ.setdefault("OUTLINES_CACHE_DIR",      f"{_CACHE}/outlines")
 os.environ.setdefault("HF_HOME",                 f"{_CACHE}/huggingface")
 os.environ.setdefault("VLLM_CACHE_ROOT",         f"{_CACHE}/vllm")
 os.environ.setdefault("TRITON_CACHE_DIR",        f"{_CACHE}/triton")
 os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", f"{_CACHE}/torchinductor")
-os.environ.setdefault("XDG_CONFIG_HOME",         "/playpen-ssd/yuvraj/.config")
+os.environ.setdefault("XDG_CONFIG_HOME",         f"{_CACHE}/config")
 os.environ.setdefault("VLLM_NO_USAGE_STATS",     "1")
 
 import argparse

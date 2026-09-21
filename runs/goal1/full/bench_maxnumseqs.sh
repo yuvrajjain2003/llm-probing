@@ -3,9 +3,8 @@
 # vLLM's own output tok/s. 48 was tuned when K=10; with n=100 per request vLLM
 # shares the prefix KV across all 100 continuations, so the old bound may be low.
 set -uo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 BASE=runs/goal1/full/math500/DeepSeek-R1-Distill-Qwen-7B
 for MNS in 48 128; do
   echo "=== max_num_seqs=$MNS ==="

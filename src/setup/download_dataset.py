@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download the full HF datasets (all splits) into shared/llm-probing-project/data/.
+"""Download the full HF datasets (all splits) into <repo>/data/.
 
 Usage:
     python download_dataset.py                       # download all datasets below

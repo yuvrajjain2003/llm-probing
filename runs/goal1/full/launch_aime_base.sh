@@ -4,10 +4,8 @@
 # not observe (41/90 = 46% at the old 8,192 cap).
 # Prompt/sampling are UNCHANGED from the pilot; only max_tokens/max_model_len move.
 set -euo pipefail
-cd /playpen-ssd/shared/llm-probing-project
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 source env.sh
-# env.sh's .outlines_cache/cache.db is owned by rishp (mode 644) -- unwritable by us.
-export OUTLINES_CACHE_DIR="${REPO_DIR}/.outlines_cache_yuvraj"
 
 export CUDA_VISIBLE_DEVICES=0
 

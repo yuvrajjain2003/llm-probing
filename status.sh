@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Overnight status:  ./status.sh
-cd /playpen-ssd/shared/llm-probing-project
+# Status of the ORIGINAL 3-CoT GPQA pipeline (tmux + local GPUs). For the SLURM run
+# on Sycamore use runs/gpqa25/status.sh.
+cd "$(dirname "${BASH_SOURCE[0]}")"
 R=runs/goal1/full/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
 echo "=================== GOAL 1 / GPQA PIPELINE ==================="
 if tmux has-session -t goal1 2>/dev/null; then echo "tmux 'goal1' : ALIVE"
@@ -20,9 +21,9 @@ if [ -f "$R/k_sufficiency/summary.csv" ]; then
 fi
 echo
 echo "--- GPUs ---"
-nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader | tr '\n' ' '; echo
+command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader | tr '\n' ' '; echo
 echo "--- real errors ---"
 hits=$(grep -lE "No space left on device|lack of CPU swap space|CUDA out of memory" runs/goal1/full/logs/*gpqa*.log 2>/dev/null | head -5)
 if [ -n "$hits" ]; then echo "$hits"; else echo "  none"; fi
-echo "--- disk ---"; df -h /playpen-ssd | tail -1
+echo "--- disk ---"; df -h . | tail -1
 echo "=============================================================="

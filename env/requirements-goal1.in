@@ -1,0 +1,35 @@
+# Direct dependencies of the Goal 1 / CPU-analysis environment ($PY).
+#
+# WHY THIS FILE EXISTS.  env/requirements-goal1.txt is a raw `pip freeze` of the
+# original box's venv and is NOT installable as-is: it pins vllm==0.5.5 and
+# torch==2.4.0 but ALSO torchaudio==2.11.0 (needs torch 2.11), opencv-python-headless
+# 4.13 (needs numpy>=2, while numpy==1.26.4 is pinned), flashinfer 0.6.8,
+# xgrammar 0.2.1, mistral_common 1.11 ... i.e. orphans left behind when a newer vLLM
+# was replaced by 0.5.5. Pip never removes those and does not check a live env for
+# consistency, so the original venv worked; a strict `pip install -r` cannot resolve.
+#
+# So: install only what src/ actually imports (found by walking the imports of every
+# module under src/), and use the freeze purely as CONSTRAINTS. A constraint pins the
+# version of anything that gets installed and is ignored for anything that does not,
+# so every package the code really needs lands at the original box's version and the
+# orphans are simply never installed.
+#
+#   pip install -r env/requirements-goal1.in -c env/requirements-goal1.txt
+#
+# Versions are the freeze's. `easysteer` is NOT here: it lives only in the Goal 2 env.
+vllm==0.5.5
+torch==2.4.0
+transformers==4.57.6
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.15.3
+scikit-learn==1.7.2
+matplotlib==3.10.8
+seaborn==0.13.2
+pyarrow==23.0.1
+# Not imported by anything in src/, but transformers' `device_map=` (used by
+# verify_capture.py --stage hf) raises without it. Found by the smoke test.
+accelerate==1.13.0
+datasets==4.8.4
+math-verify==0.9.0
+tqdm==4.67.3
