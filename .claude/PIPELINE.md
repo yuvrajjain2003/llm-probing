@@ -1,5 +1,7 @@
 # Running the pipeline
 
+**On Sycamore (SLURM) do not use the launcher scripts below directly — use `runs/gpqa25/`**; see [`SETUP.md`](SETUP.md) §8. The commands here document what each stage does.
+
 Every command assumes `source env.sh` first. Every GPU stage is **resumable**
 (append-only JSONL + resume-by-count) — re-running continues rather than
 restarting, so an interrupted job is not lost work. Do not add `--no-resume`

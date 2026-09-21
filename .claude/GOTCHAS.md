@@ -26,6 +26,58 @@ EasySteer already returns **all 28 layers on every call**; the original
 `extract_activations.py` requested 3 and discarded 25. There is no cost saving in
 asking for fewer.
 
+## `env/requirements-goal1.txt` is a record, not an installable file
+
+It is a raw `pip freeze` of the original box's venv and cannot be installed: it pins
+`vllm==0.5.5` / `torch==2.4.0` alongside orphans from a newer vLLM (`torchaudio==2.11.0`
+needs torch 2.11; `opencv-python-headless` 4.13 needs numpy>=2 while `numpy==1.26.4`
+is pinned; also `flashinfer`, `xgrammar 0.2.1`, `mistral_common 1.11`, ...). A strict
+`pip install -r` dies with `ResolutionImpossible`. `env/setup_goal1.sh` installs
+`env/requirements-goal1.in` (the 13 packages `src/` actually imports) and uses the freeze
+only as `-c` constraints. Result on Sycamore: 138 packages, every one at exactly the
+freeze's version, 119 orphans not installed, `pip check` clean.
+
+## `pyairports` on PyPI is a placeholder, and `import vllm` fails with it
+
+`outlines==0.0.46` (pulled in by vllm 0.5.5) does `from pyairports.airports import
+AIRPORT_LIST`. The only `pyairports` on PyPI is one release, 0.0.1 (2025-09-25, author
+"John Doe"): a stock setuptools sample project with no airports data that also installs
+top-level `sample/` and `tests/` packages and a `byted-wandb` console script. Its
+`setup.py` is inert (reads the README), but it cannot satisfy the import, so
+`import vllm` fails with `ModuleNotFoundError: No module named 'pyairports'`.
+`env/shims/pyairports/` is a local stand-in (`AIRPORT_LIST = []`, which only empties
+outlines' airport-code enum -- structured decoding is unused here); `setup_goal1.sh`
+installs it first so pip never fetches the PyPI one. The original freeze also lists
+`pyairports==0.0.1`; how imports worked on the original box is unexplained.
+
+## `squeue` hides jobs on the GPU partitions — use `squeue -a`
+
+`h100_all` is a hidden partition. Plain `squeue -u $USER` omits hidden-partition jobs and
+prints nothing while GPU jobs are running (an explicit `squeue -j <id>` does show them).
+Use `squeue -a -u $USER`. `runs/gpqa25/status.sh` and the queue's liveness check do.
+Also NFS: a directory listing on the login node can lag a few tens of seconds behind a
+compute node's `mkdir` (locks written by workers appear late) — wait and re-list before
+concluding something is missing.
+
+## vLLM 0.5.5 is CPU-bound on the H100 for this workload (GPU ~30-35% busy)
+
+Measured on the live GPQA continuation run (2026-09-21): `nvidia-smi` utilisation steady at
+28-37% on two workers, the engine's main thread at 97% of ONE core (all other threads idle),
+no preemption. A 45 s `py-spy` profile (2,249 samples, non-blocking) of the engine step:
+~43% execute_model (of which ~27% is `_random_sample`'s `random_samples.cpu()` = the CPU
+waiting on the GPU, i.e. the genuinely GPU-busy part), ~37% scheduler, ~17% output
+processing. Inside the scheduler, `BlockSpaceManagerV1.access_all_blocks_in_seq` (a Python
+loop over EVERY KV block of EVERY running sequence, every step, guarded by prefix caching;
+~19% incl.) and `get_block_table` (~17%) are O(running seqs x context blocks); detokenization is
+~12%. With 128 sequences and contexts of thousands of tokens (prompt + long prefix + up to 16k
+generated) that per-step Python cost is ~1.3x the GPU time, so one engine per GPU can never
+use more than ~40% of it. Faster GPUs only speed up the GPU share (Amdahl): estimates scaled
+from the A6000 numbers by memory bandwidth were ~3x too optimistic (measured ~2,186
+continuations/GPU-h, ~280 GPU-h for 615k continuations). Untested remedies, in order of
+expected gain: 2 engine processes per GPU (~2x; needs unique lock owners in `run_queue`),
+`enable_prefix_caching=False` (~1.15x, removes the block-timestamp loop), a newer vLLM
+(V1 engine; would change the sampling path -- re-validate against the original data).
+
 ## The two vLLM versions are mutually incompatible
 
 `$PY` (0.5.5) and `$PY_ES` (0.17.1 fork) cannot share a venv. Running
