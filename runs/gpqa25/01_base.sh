@@ -23,4 +23,4 @@ source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sb
 need_py "$PY"; need_weights; need_data
 log_worker base
 
-run_queue base "$NSHARDS" base_shard
+run_engines base "$NSHARDS" base_shard

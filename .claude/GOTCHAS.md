@@ -73,10 +73,28 @@ loop over EVERY KV block of EVERY running sequence, every step, guarded by prefi
 generated) that per-step Python cost is ~1.3x the GPU time, so one engine per GPU can never
 use more than ~40% of it. Faster GPUs only speed up the GPU share (Amdahl): estimates scaled
 from the A6000 numbers by memory bandwidth were ~3x too optimistic (measured ~2,186
-continuations/GPU-h, ~280 GPU-h for 615k continuations). Untested remedies, in order of
-expected gain: 2 engine processes per GPU (~2x; needs unique lock owners in `run_queue`),
-`enable_prefix_caching=False` (~1.15x, removes the block-timestamp loop), a newer vLLM
-(V1 engine; would change the sampling path -- re-validate against the original data).
+continuations/GPU-h, ~280 GPU-h for 615k continuations). MEASURED remedies (benchmark jobs 4522034 / 4527004 / 4527023,
+2026-09-25; 5 min per config, throughput from vLLM's own stats, control reproducible
+to 0.2%): `use_v2_block_manager=True` 1.18x; **plus `max_num_seqs=256` 1.42x -- now the
+default in `runs/gpqa25/common.sh`**; multi-step is unavailable (`NotImplementedError:
+Multiple scheduler steps (multi-step) are only supported through AsyncLLMEngine`, and we
+use the offline `LLM()` class).
+
+**Two engines per GPU is SLOWER than one engine with the same total concurrency**
+(4,431 vs 4,943 tok/s at 256 sequences), because each process re-reads the 15 GB of
+weights every step, and decode at these batch sizes is bound by that read. It also
+reports much HIGHER GPU utilisation (84% vs 55%) while doing less useful work --
+**nvidia-smi utilisation is not throughput**, and optimising for it is a trap. Three
+engines hung outright: each got 68k tokens of KV for sequences needing ~115k, and
+thrashed into CPU swap.
+
+Two further traps if you do run several engines on one GPU (the plumbing is in place,
+`ENGINES_PER_GPU`): vLLM sizes its cache from `total_gpu_memory * gpu_memory_utilization
+- peak_memory` where `peak_memory` comes from `torch.cuda.mem_get_info()`, which reports
+the WHOLE DEVICE -- so engines must LOAD one at a time (`run_gated` in `common.sh`, using
+`continuations.py --ready-file`) or one dies with "No available memory for the cache
+blocks"; and a stable, fully-loaded sibling is invisible to that calculation, so an equal
+`gpu_memory_utilization` split is correct once start-up is serialised.
 
 ## The two vLLM versions are mutually incompatible
 

@@ -30,6 +30,11 @@ source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sb
 
 need_py "$PY_ES"; need_weights
 [ -f "$RUN_DIR/raw/checkpoints.jsonl" ] || die "no merged checkpoints at $RUN_DIR/raw -- run 05_merge_label.sh first"
+# The capture conventions must have been verified for THIS run at least once. Stage 03
+# normally guarantees that via the job dependency, but a resume (START_AT>=6) can skip
+# it, so re-check the artifact rather than assume.
+grep -q "VERDICT: PASS" "$VERIFY_DIR/cmp.txt" 2>/dev/null \
+  || die "capture never verified for this run ($VERIFY_DIR/cmp.txt) -- run 03_verify_capture.sh first"
 log_worker extract
 
-run_queue extract "$EXTRACT_SHARDS" extract_shard
+run_engines extract "$EXTRACT_SHARDS" extract_shard

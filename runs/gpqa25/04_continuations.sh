@@ -25,4 +25,4 @@ need_py "$PY"; need_weights; need_data
 [ -f "$RUN_DIR/raw/sample_records.jsonl" ] || die "no merged base CoTs at $RUN_DIR/raw -- run 02_merge_base.sh first"
 log_worker cont
 
-run_queue cont "$NSHARDS" cont_shard
+run_engines cont "$NSHARDS" cont_shard

@@ -121,7 +121,17 @@ def run(args: argparse.Namespace) -> None:
         # Every K continuations of a prefix share the whole (prompt+prefix), and
         # nested checkpoints of a CoT share the growing prefix -- prefix caching
         # turns that shared span into a KV-cache hit instead of a recompute.
-        enable_prefix_caching=True,
+        enable_prefix_caching=args.enable_prefix_caching,
+        # BlockSpaceManagerV2 makes access_all_blocks_in_seq O(1) (it records one
+        # timestamp per sequence and defers the block update to free()), where V1
+        # walks EVERY KV block of EVERY running sequence on EVERY step.  With 128
+        # sequences at multi-thousand-token contexts that loop was ~19% of engine
+        # time in a py-spy profile of the first GPQA run.  Required by multi-step.
+        use_v2_block_manager=args.use_v2_block_manager or args.num_scheduler_steps > 1,
+        # Multi-step: run this many decode steps per scheduler call, amortising the
+        # Python scheduler + output-processing cost (~54% of step time in that same
+        # profile) over N GPU steps.  1 = the original single-step behaviour.
+        num_scheduler_steps=args.num_scheduler_steps,
         # The model advertises a 131072 context, which forces a huge KV cache and
         # blocks low gpu-memory-utilization.  A continuation's context is prompt +
         # prefix (up to ~all of an 8k CoT at the 90% checkpoint) + up to max_tokens
@@ -133,7 +143,24 @@ def run(args: argparse.Namespace) -> None:
         # vLLM streams the rest via continuous batching.  swap_space is headroom.
         max_num_seqs=args.max_num_seqs,
         swap_space=args.swap_space,
+        # LLM() forces disable_log_stats=True.  Turning stats back on prints the
+        # running-request count and generation throughput every few seconds, which
+        # is how the engine-knob benchmark measures throughput without waiting for
+        # a JSONL flush.
+        disable_log_stats=not args.log_stats,
     )
+
+    # Signal that this engine has finished profiling and allocating its KV cache.
+    # Several engines on one GPU MUST start one at a time: vLLM sizes its cache from
+    # `total_gpu_memory * gpu_memory_utilization - peak_memory`, where peak_memory is
+    # derived from torch.cuda.mem_get_info(), which reports memory for the WHOLE
+    # DEVICE.  Two engines profiling at once each count the other's weights as their
+    # own overhead and one of them dies with "No available memory for the cache
+    # blocks".  Waiting for this file is exact, where sleeping a fixed interval is a
+    # guess.  (See run_engines in runs/gpqa25/common.sh.)
+    if args.ready_file:
+        Path(args.ready_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.ready_file).write_text("ready\n", encoding="utf-8")
 
     # ── Resume: count continuations already saved per (eid, cot_id, fraction) ──
     done: dict[tuple[int, int, float], int] = {}
@@ -332,6 +359,26 @@ def main() -> None:
     p.add_argument("--max-num-seqs", type=int, default=48,
                    help="max concurrent sequences in the running set; keep the "
                         "product with max-tokens within KV-cache capacity.")
+    # ── Engine-CPU knobs (defaults reproduce the original single-step behaviour) ──
+    p.add_argument("--num-scheduler-steps", type=int, default=1,
+                   help="decode steps per scheduler call (vLLM multi-step). >1 "
+                        "amortises the Python scheduler/output-processing cost; "
+                        "auto-enables the V2 block manager. 1 = original behaviour.")
+    p.add_argument("--use-v2-block-manager", action="store_true",
+                   help="BlockSpaceManagerV2: O(1) prefix-cache access bookkeeping "
+                        "instead of V1's per-block loop on every step.")
+    p.add_argument("--enable-prefix-caching", action="store_true", default=True)
+    p.add_argument("--no-prefix-caching", dest="enable_prefix_caching",
+                   action="store_false",
+                   help="disable prefix caching; removes its per-step bookkeeping "
+                        "but forces the shared prompt+prefix to be re-prefilled for "
+                        "each of the ceil(K/max-n-per-request) sub-requests.")
+    p.add_argument("--ready-file", default=None,
+                   help="file to create once the engine has allocated its KV cache; "
+                        "lets a launcher start engines on one GPU one at a time.")
+    p.add_argument("--log-stats", action="store_true",
+                   help="print vLLM's periodic throughput/running-requests stats "
+                        "(off by default, as in stock LLM()).")
     p.add_argument("--swap-space", type=int, default=16,
                    help="GB of CPU swap space for preemption headroom.")
     p.add_argument("--subset-mod", type=int, default=1,

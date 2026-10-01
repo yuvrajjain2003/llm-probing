@@ -22,6 +22,7 @@ source "$REPO_DIR/env.sh"
 cd "$REPO_DIR"
 
 # ── What this run is ──────────────────────────────────────────────────────────
+QUEUE_ROOT="${QUEUE_ROOT:-$RUNS_ROOT/queue/${RUN_TAG:-gpqa25}}"
 DATASET=gpqa_diamond
 MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 MODEL_SLUG="${MODEL##*/}"
@@ -37,15 +38,45 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-24576}"
 # Shard counts = queue lengths for the worker jobs (see run_queue below), independent of
 # how many workers you submit. Sharding is by example_id % N, so keep N fixed across
 # resubmits of a stage.
-NSHARDS="${NSHARDS:-16}"                 # base CoTs + continuations
+# Shard count is PINNED PER RUN in the queue directory. Changing it mid-run would
+# re-partition the work by `example_id % N` and regenerate finished questions under new
+# shard numbers, so a live run keeps whatever it started with and only new runs pick up
+# the default. 64 (not 16) because with 16 shards over 198 questions one unlucky shard
+# held the 2026-09-26 run hostage for a full extra day.
+_pin="${QUEUE_ROOT:-$RUNS_ROOT/queue/$RUN_TAG}/cont/.nshards"
+if [ -z "${NSHARDS:-}" ] && [ -r "$_pin" ]; then NSHARDS="$(cat "$_pin")"; fi
+NSHARDS="${NSHARDS:-64}"                 # base CoTs + continuations
 EXTRACT_SHARDS="${EXTRACT_SHARDS:-32}"   # extract_checkpoints.py writes only when a shard
                                          # finishes, so small shards bound what a crash loses
 
-# vLLM knobs. These defaults are the values MEASURED ON 8x A6000 48 GB (see
-# .claude/SETUP.md sec. 7). They are known-safe, not tuned for H100: expect to
-# raise MAXN / MAX_NUM_SEQS once a first shard has been timed.
+# vLLM knobs.  MAXN/GPU_UTIL/SWAP_GB are the values measured on 8x A6000 48 GB (see
+# .claude/SETUP.md sec. 7).  MAX_NUM_SEQS and the block manager were re-measured on
+# the H100 (benchmark jobs 4522034 / 4527004, 2026-09-25, 5 min per config, throughput
+# from vLLM's own stats, control reproducible to 0.2%):
+#
+#   V1 blocks, 128 seqs  3,487 tok/s  (the first run's settings)
+#   V2 blocks, 128 seqs  4,116        1.18x  -- V1 walks every KV block of every
+#                                               sequence every step; V2 is O(1)
+#   V2 blocks, 256 seqs  4,943        1.42x  <- what we now run
+#   V2, 2 engines x 128  4,431        1.27x  -- same 256 sequences split over two
+#                                               processes: 12% SLOWER, because each
+#                                               process re-reads the 15 GB of weights
+#                                               per step.  GPU "utilisation" reads
+#                                               higher (84% vs 55%) while doing less
+#                                               useful work -- utilisation is not
+#                                               throughput.
+#   multi-step (any N)   unsupported  -- NotImplementedError: only via AsyncLLMEngine
+#
+# Why not more than 256: at production context lengths (~2,530 tokens/sequence) 256
+# sequences already need ~70% of the 923k-token cache.  Starving the cache is what
+# made the 3-engine config thrash into CPU swap and hang (each engine got 68k tokens
+# for sequences needing 115k).
 GPU_UTIL="${GPU_UTIL:-0.85}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-128}"
+USE_V2_BLOCKS="${USE_V2_BLOCKS:-1}"      # 0 restores the first run's V1 block manager
+# Built as a variable, not "${USE_V2_BLOCKS:+...}": that form expands for ANY
+# non-empty value, so USE_V2_BLOCKS=0 would still have passed the flag.
+V2_FLAG=""; [ "$USE_V2_BLOCKS" = "1" ] && V2_FLAG="--use-v2-block-manager"
 MAXN="${MAXN:-8}"                        # --max-n-per-request; 8 fit at a 16384-token budget
 SWAP_GB="${SWAP_GB:-32}"
 
@@ -101,28 +132,40 @@ need_data() {
 # A lock whose owner job is no longer in squeue is stale (timeout, scancel, node
 # failure) and is released; the shard resumes by count, so nothing already generated
 # is redone.
-QUEUE_ROOT="${QUEUE_ROOT:-$RUNS_ROOT/queue/$RUN_TAG}"
 
-_job_alive() { squeue -a -h -j "$1" 2>/dev/null | grep -q .; }
+# Owner ids are "<jobid>.<slot>" (slot distinguishes concurrent engine loops inside
+# one job), so strip the slot before asking SLURM whether the job still exists.
+_job_alive() { squeue -a -h -j "${1%%.*}" 2>/dev/null | grep -q .; }
 
 # run_queue <stage> <n_shards> <fn>      fn is called as `fn <shard>`; end it with
 # `|| return 1` on every command (set -e is suspended inside a function used in `if`).
+# Set ENGINE_SLOT to distinguish concurrent loops within one job (see run_engines).
 run_queue() {
-  local stage="$1" n="$2" fn="$3" q="$QUEUE_ROOT/$1" me="${SLURM_JOB_ID:-local}"
+  local stage="$1" n="$2" fn="$3" q="$QUEUE_ROOT/$1"
+  local me="${SLURM_JOB_ID:-local}.${ENGINE_SLOT:-0}"
   local l owner s ran=0 fails=0
   mkdir -p "$q"
   for l in "$q"/lock.*; do
     [ -d "$l" ] || continue
     owner="$(cat "$l/owner" 2>/dev/null || true)"
-    # Stale if: its owner is gone; or it is MY id (a requeued job restarts with the
-    # same id, and I run one shard at a time so any lock of mine is from before); or
-    # it has no owner file and is old (a fresh empty lock is a claim being written).
+    # Stale if: its owner's JOB is gone; or it is MY exact id, slot included (a
+    # requeued job restarts with the same id, and each loop runs one shard at a time,
+    # so any lock bearing my own slot is from before); or it has no owner file and is
+    # old (a fresh empty lock is a claim still being written).
     if { [ -n "$owner" ] && { [ "$owner" = "$me" ] || ! _job_alive "$owner"; }; } \
        || { [ -z "$owner" ] && [ -n "$(find "$l" -maxdepth 0 -mmin +5 2>/dev/null)" ]; }; then
       rm -rf "$l"; echo "[queue] released stale $(basename "$l") (owner ${owner:-none})"
     fi
   done
-  for s in $(seq 0 $((n - 1))); do
+  # Longest shard first. With shards taken in index order the most expensive one tends
+  # to start last and run alone; starting it first leaves a short shard as the tail.
+  mkdir -p "$q"; [ -e "$q/.nshards" ] || echo "$n" > "$q/.nshards"
+  local order
+  order=$("$PY" src/analysis/plan_shards.py order --run-dir "$RUN_DIR" --num-shards "$n" 2>/dev/null) \
+    || order=$(seq 0 $((n - 1)))
+  [ -z "$order" ] && order=$(seq 0 $((n - 1)))
+
+  for s in $order; do
     [ -e "$q/done.$s" ] && continue
     mkdir "$q/lock.$s" 2>/dev/null || continue           # another worker has it
     echo "$me" > "$q/lock.$s/owner"
@@ -130,7 +173,17 @@ run_queue() {
     if "$fn" "$s"; then
       touch "$q/done.$s"; ran=$((ran + 1)); echo "[$(date '+%F %T')] [queue] $stage shard $s: done"
     else
-      fails=$((fails + 1)); echo "[$(date '+%F %T')] [queue] $stage shard $s: FAILED"
+      # One retry at half the concurrency. The failure we actually hit --
+      # `assert len(seqs) == 1` in vLLM's scheduler -- fires when an n>1 request group
+      # is PREEMPTED, so it is a symptom of too large a running set for this shard's
+      # contexts and usually clears with fewer sequences in flight.
+      echo "[$(date '+%F %T')] [queue] $stage shard $s: failed; retrying at half concurrency"
+      if ( MAX_NUM_SEQS=$(( ${MAX_NUM_SEQS:-128} / 2 )); export MAX_NUM_SEQS; "$fn" "$s" ); then
+        touch "$q/done.$s"; ran=$((ran + 1))
+        echo "[$(date '+%F %T')] [queue] $stage shard $s: done on retry"
+      else
+        fails=$((fails + 1)); echo "[$(date '+%F %T')] [queue] $stage shard $s: FAILED twice"
+      fi
     fi
     rm -rf "$q/lock.$s"
   done
@@ -165,18 +218,37 @@ base_shard() {
     --temperature 0.7 --top-p 0.95 \
     --max-tokens "$MAX_TOKENS" --max-model-len "$MAX_MODEL_LEN" \
     --sample-batch-size 256 --max-num-seqs "$MAX_NUM_SEQS" \
-    --tensor-parallel-size 1 --gpu-memory-utilization "$GPU_UTIL" \
+    --tensor-parallel-size 1 --gpu-memory-utilization "${GPU_UTIL_EFFECTIVE:-$GPU_UTIL}" \
     --num-shards "$NSHARDS" --shard-index "$1" --resume || return 1
 }
 cont_shard() {
-  "$PY" src/generation/continuations.py \
+  # Concurrency is sized from THIS shard's prefix lengths, not a constant. A fixed
+  # max_num_seqs is what broke the 2026-09-26 run: 256 was tuned on ~1,200-token
+  # sequences and applied to a shard averaging ~5,700, giving a working set 1.6x the KV
+  # cache -- continuous preemption, 3.5x slower, and whole shards killed by vLLM's
+  # n>1-preemption assertion. MAX_NUM_SEQS in the environment (e.g. the retry path)
+  # still wins.
+  local seqs="${MAX_NUM_SEQS_OVERRIDE:-${MAX_NUM_SEQS:-}}"
+  if [ -z "${MAX_NUM_SEQS_FIXED:-}" ]; then
+    seqs=$("$PY" src/analysis/plan_shards.py concurrency --run-dir "$RUN_DIR" \
+             --num-shards "$NSHARDS" --shard-index "$1" --gen-tokens "${GEN_TOKENS:-2800}" \
+             --fallback "${MAX_NUM_SEQS:-128}" --max-seqs "${MAX_NUM_SEQS:-128}" --explain 2>&1 \
+             | tail -1) || seqs="${MAX_NUM_SEQS:-128}"
+    case "$seqs" in ''|*[!0-9]*) seqs="${MAX_NUM_SEQS:-128}" ;; esac
+    echo "[concurrency] shard $1: max_num_seqs=$seqs (cap ${MAX_NUM_SEQS:-128})"
+  fi
+  MAX_NUM_SEQS="$seqs"
+  run_gated "${TMPDIR:-/tmp}/ready_cont_${ENGINE_SLOT:-0}_$1" \
+    "$PY" src/generation/continuations.py \
+    --ready-file "${TMPDIR:-/tmp}/ready_cont_${ENGINE_SLOT:-0}_$1" \
     --base-dir "$RUN_DIR" --model "$MODEL" --dataset "$DATASET" \
     --continuations-per-prefix "$K" --fractions "${FRACTIONS[@]}" \
     --prefix-batch-size 32 \
     --temperature 0.7 --top-p 0.95 \
     --max-tokens "$MAX_TOKENS" --max-model-len "$MAX_MODEL_LEN" \
     --max-n-per-request "$MAXN" --max-num-seqs "$MAX_NUM_SEQS" \
-    --tensor-parallel-size 1 --gpu-memory-utilization "$GPU_UTIL" --swap-space "$SWAP_GB" \
+    $V2_FLAG \
+    --tensor-parallel-size 1 --gpu-memory-utilization "${GPU_UTIL_EFFECTIVE:-$GPU_UTIL}" --swap-space "$SWAP_GB" \
     --num-shards "$NSHARDS" --shard-index "$1" --resume || return 1
 }
 extract_shard() {
@@ -218,4 +290,74 @@ verify_capture_gate() {
   grep -q "HF_entry = ES_layer + 1,  HF_pos = ES_pos + -1" "$VERIFY_DIR/cmp.txt" \
     || { echo "ERROR: alignment differs from what extract_checkpoints.py assumes (see $VERIFY_DIR/cmp.txt)"; return 1; }
   echo "[$(date '+%F %T')] capture verified: PASS and alignment matches extract_checkpoints.py"
+}
+
+
+# ── Serialising engine start-up on a shared GPU ───────────────────────────────
+# vLLM sizes its KV cache as `total_gpu_memory * gpu_memory_utilization - peak_memory`,
+# and derives peak_memory from torch.cuda.mem_get_info(), which reports the WHOLE
+# DEVICE.  So while an engine is loading, any sibling that profiles at the same moment
+# counts those weights as its own overhead and dies with "No available memory for the
+# cache blocks" (observed, benchmark job 4527004).  Once a sibling is fully allocated
+# and stable it is invisible to the calculation, because each process records its own
+# baseline at start-up.  Hence: only ONE engine may be in its loading phase at a time.
+# This applies to every launch, not just the first -- a worker relaunches the engine
+# for each shard it picks up.
+_gate_dir() { echo "${TMPDIR:-/tmp}/vllm_start_gate_${SLURM_JOB_ID:-local}"; }
+
+_gate_acquire() {
+  local g; g="$(_gate_dir)" ; local waited=0
+  while ! mkdir "$g" 2>/dev/null; do
+    # Force-release a gate held far longer than any model load (crashed holder).
+    if [ -n "$(find "$g" -maxdepth 0 -mmin +20 2>/dev/null)" ]; then
+      echo "[gate] releasing a stale start-up gate"; rm -rf "$g"; continue
+    fi
+    sleep 3; waited=$((waited + 3))
+    [ "$waited" -ge 1800 ] && { echo "[gate] giving up waiting after ${waited}s"; return 0; }
+  done
+}
+_gate_release() { rm -rf "$(_gate_dir)" 2>/dev/null; }
+
+# run_gated <ready_file> <cmd...>   Hold the start-up gate only until this engine has
+# allocated its cache (it writes <ready_file>), then release it so the next engine can
+# load while this one generates.
+run_gated() {
+  local rf="$1"; shift
+  [ "${ENGINES_PER_GPU:-1}" -le 1 ] && { "$@"; return $?; }
+  rm -f "$rf"; _gate_acquire
+  "$@" & local pid=$! waited=0
+  while kill -0 "$pid" 2>/dev/null && [ ! -f "$rf" ] && [ "$waited" -lt 1200 ]; do
+    sleep 3; waited=$((waited + 3))
+  done
+  _gate_release
+  wait "$pid"
+}
+
+# ── Several engine processes on ONE GPU ───────────────────────────────────────
+# The engine is CPU-bound, not GPU-bound: one Python thread does all scheduling and
+# detokenisation, and the GIL means extra THREADS cannot help -- only extra
+# PROCESSES.  Measured on the first GPQA run: GPU 30-37% busy, engine main thread at
+# 97% of one core, every other thread idle.  Two engines on one card therefore use
+# two cores against a GPU that is idle roughly two-thirds of the time.
+#
+# Cost: each process loads its own copy of the weights (~15 GB), so the KV cache is
+# split.  At ENGINES=2 each gets gpu_memory_utilization ~0.42 => ~19 GB of KV, about
+# 325k tokens; the first run peaked at ~18% of a 923k-token cache, so this is ample.
+#
+# Each loop claims its own shards and gets its own ENGINE_SLOT, so the queue's
+# stale-lock logic never mistakes a sibling's live lock for its own.
+run_engines() {   # run_engines <stage> <n_shards> <fn>
+  local n="${ENGINES_PER_GPU:-1}"
+  # One engine: clear any split budget so the stage uses the full $GPU_UTIL.
+  if [ "$n" -le 1 ]; then unset GPU_UTIL_EFFECTIVE; run_queue "$@"; return $?; fi
+  # Split the memory budget; keep a little headroom for per-process CUDA context.
+  export GPU_UTIL_EFFECTIVE
+  GPU_UTIL_EFFECTIVE=$(awk -v u="$GPU_UTIL" -v n="$n" 'BEGIN{printf "%.3f", (u-0.03)/n}')
+  echo "[engines] $n engine processes on this GPU, gpu_memory_utilization=$GPU_UTIL_EFFECTIVE each"
+  local pids=() i rc=0
+  for i in $(seq 1 "$n"); do
+    ( ENGINE_SLOT="$i" run_queue "$@" ) & pids+=($!)
+  done
+  for i in "${pids[@]}"; do wait "$i" || rc=1; done
+  return $rc
 }
