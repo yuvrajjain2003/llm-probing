@@ -28,6 +28,7 @@ data/**
 venv/
 .hf_home/
 .work/
+cache/
 .outlines_cache*/
 *.safetensors
 *.gguf

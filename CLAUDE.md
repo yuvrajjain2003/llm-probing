@@ -1,4 +1,62 @@
-# CLAUDE.md — LLM CoT Probing Project (Goal 1)
+# CLAUDE.md
+
+## Rules (always follow — these take priority)
+- **Brief replies.** Plain language, little jargon, clear over clever.
+- **No assumptions.** If something is unknown, check it or ask. Say "I don't know" rather than guess.
+- **Verify claims.** Back every statement about code, data, or results with something you actually ran or read. Say what you checked.
+- **Minimal code.** Write the simplest code that works. No extra features, layers, or "just in case" options.
+- **Minimal changes.** When editing existing code, change only what's needed. No drive-by refactors or reformatting.
+- **Don't run long jobs without asking.** Use `sbatch --test-only` to check a submission without running it.
+- **Never `git push` without asking the user explicitly first.** Committing locally is fine when asked.
+- **Read `learnings.md`** at the start of each session, and add to it when we learn something or make a mistake.
+- **Keep this file current.** At the start of each session, re-check "Repo state" below and update it. Mark tasks done in "Current work" as they finish.
+
+## Repo state
+_Last updated: 2026-10-03_
+
+- **Folder:** `/proj/ssrivalab/projects/llm-probing` (group-shared, owned by user `yuvraj`). Git repo: `git@github.com:yuvrajjain2003/llm-probing.git`, branch `main`, at commit `28f0b56` (2026-10-01).
+- **Code:** `src/` (Python pipeline), `runs/gpqa25/*.sh` (current Slurm pipeline, numbered stages 00–09), `runs/goal1/full/`, `runs/goal2/` (older launchers), `env/` (setup), `env.sh` (paths).
+- **Project docs** (from the repo — read when needed): `.claude/README.md` (start here), `STATE.md` (results as of 2026-09-18, old UNC box), `NEXT.md` (agreed plan), `PIPELINE.md`, `SETUP.md`, `GOTCHAS.md`. The repo's original instructions are kept below under "Project notes".
+- **Not in git (local only):** `cache/` (~70 GB: HF model weights, pip, conda), `data/gpqa_diamond/`, `runs/**` outputs (~24 GB), `learnings.md`.
+- **Results present here** (Sycamore runs, 2026-09-20 to 09-28, newer than `STATE.md`):
+  - `runs/goal1/gpqa25/` — GPQA-Diamond, 198 questions × 25 CoTs, Qwen-7B. pass@1 0.487, majority-vote 0.551.
+  - `runs/goal2/gpqa25/` — checkpoint activations, probes (`probes_ckpt/fast/`), ablation CSVs, capture check (PASSED).
+  - `runs/*/smoke/` — small test runs.
+- **Paths caveat:** `env.sh` puts envs/cache/runs under `/work/users/r/i/rishp`, which doesn't exist for us, so it falls back to `<repo>/.work`. Existing outputs and cache are in `runs/` and `cache/` here. Decide where things should live before running anything.
+- **Python envs:** none set up for us yet (earlier ones were in yuvraj's `/work`, which we can't read).
+
+## Slurm / cluster (Sycamore, UNC)
+- Account: `rc_ssriva_pi`, QOS: `normal`. Login node has no GPU — don't run heavy work there.
+- **GPUs:** use partition `h100_all` — 4 nodes × 4 H100 (16 total), 256 CPUs and ~1.5 TB RAM per node. Max 5 days. (`h100` partition is NOT allowed for us.) GPUs are heavily shared; on 2026-10-03 all 16 were busy with ~8-day estimated wait.
+- **CPU partitions:**
+  | partition | min CPUs | max time | notes |
+  |---|---|---|---|
+  | `small` | 2 | 5 days | up to 192 CPUs/user |
+  | `batch` (default) | 48 | 5 days | |
+  | `inter` | 1 | 8 h | interactive |
+  | `debug` | — | 4 h | 2 nodes |
+- Default time limit is 2 h if `-t` not set. Default memory is 512 MB/CPU — always set `--mem`.
+- `--exclusive` is not allowed.
+- No access: `h100`, `hipri`, `CMSlab`.
+- Software via modules: `module load anaconda/2025.12-2`, `cuda/12.9` / `cuda/13.x`.
+- Example GPU job (past runs used 1 GPU, 8–16 CPUs, 96–128 GB):
+  ```bash
+  sbatch -p h100_all --gres=gpu:1 -c 8 --mem=96G -t 02:00:00 job.sh
+  ```
+- Useful: `squeue -u $USER`, `sacct -j <id>`, `sbatch --test-only ...` (dry run), `sinfo -a` (shows hidden partitions).
+
+## Current work
+_User gives direction; track tasks here. Mark `[x]` when done._
+- [x] Explore folder and cluster setup
+- [x] Pull code from GitHub into this folder
+- [ ] Set up our own Python environment (and decide where envs/cache/runs live)
+
+## Next steps
+- (waiting on user)
+
+---
+
+# Project notes (original repo CLAUDE.md, by yuvraj)
 
 > **New session / new machine? Read [`.claude/README.md`](.claude/README.md) first.**
 > This file is the authority on **scope and working practices**. `.claude/` is the
