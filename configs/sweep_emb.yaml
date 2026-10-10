@@ -1,0 +1,14 @@
+# Baseline 1: Qwen3-Embedding-8B embeddings of (question + choices + prefix) -> ridge / logistic.
+# Fixed per-question folds; compare to sweep/ref_fixed (act_L21, prefix_len, tfidf).
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/emb_qwen3_8b
+folds: 5
+fold_seed: 0
+features:
+  emb_qwen3_8b: {type: npy, path: runs/goal2/gpqa25/embeddings/qwen3_emb_8b.npy, keys: runs/goal2/gpqa25/embeddings/qwen3_emb_8b.keys.csv}
+probes:
+  ridge_act: {class: ridge,    grid: {alpha: {logspace: [0, 6, 13]}}}
+  logistic:  {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+runs:
+  - {features: [emb_qwen3_8b], probes: [ridge_act, logistic]}

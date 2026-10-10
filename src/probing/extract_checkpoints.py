@@ -103,10 +103,9 @@ def build_cases(run_dir: Path, num_shards: int, shard_index: int):
         longest = max(fracs, key=lambda f: pos[f])
         text = prompt + per_frac[longest]
         n_text = pos[longest] + 1
-        if n_text <= n_prompt:                      # empty prefix; unusable
-            continue
-        # Positions must be strictly inside the sequence we are about to feed.
-        assert all(n_prompt <= pos[f] < n_text for f in fracs), (eid, cid)
+        # Positions must be inside the sequence we are about to feed; an empty
+        # prefix (fraction 0) sits on the last prompt token, n_prompt - 1.
+        assert all(n_prompt - 1 <= pos[f] < n_text for f in fracs), (eid, cid)
 
         cases.append(dict(example_id=eid, cot_id=cid, text=text,
                           n_prompt=n_prompt, n_text=n_text,

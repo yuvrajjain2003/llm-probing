@@ -29,6 +29,7 @@ venv/
 .hf_home/
 .work/
 cache/
+envs/
 .outlines_cache*/
 *.safetensors
 *.gguf

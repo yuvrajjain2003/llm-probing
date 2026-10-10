@@ -1,0 +1,25 @@
+# Qwen3-Embedding-8B: logistic with wider C grid only (ridge already in sweep/emb_qwen3_8b). Fixed folds. Generated.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+out_dir: runs/goal2/gpqa25/sweep/feat_qwen3_emb_8b
+features:
+  qwen3_emb_8b:
+    type: npy
+    path: runs/goal2/gpqa25/embeddings/qwen3_emb_8b.npy
+    keys: runs/goal2/gpqa25/embeddings/qwen3_emb_8b.keys.csv
+probes:
+  logistic_wide:
+    class: logistic
+    grid:
+      C:
+        logspace:
+        - -6
+        - 1
+        - 8
+runs:
+- features:
+  - qwen3_emb_8b
+  probes:
+  - logistic_wide

@@ -1,0 +1,1410 @@
+# Step 4a weight-decay rerun ABLATION: same MLP as sweep_4a_mlp_*.yaml but AdamW wd in {1, 10, 100}
+# (first run used wd <= 0.1, which had no effect: lr*wd ~ 1e-5 per step). Generated.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+targets:
+- answer_entropy_bits_mm
+- rem_len_mean
+- rem_len_std
+- p_mode
+- committed_by_here
+features:
+  act_L21:
+    type: act
+    layers:
+    - 21
+out_dir: runs/goal2/gpqa25/sweep/4a_mlp_wd_ablation
+probes:
+  mlp_h5_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h5_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h5_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h5_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h5_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h5_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h5_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h5_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h5_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h5_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h5_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h5_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h5_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h5_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h5_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h5_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h5_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h5_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h8_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h8_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h8_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h8_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h8_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h8_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h8_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h8_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h8_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h8_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h8_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h8_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h8_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h8_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h8_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h8_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h8_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h8_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h10_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h10_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h10_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h10_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h10_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h10_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h10_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h10_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h10_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h10_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h10_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h10_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h10_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h10_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h10_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h10_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h10_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h10_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h12_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h12_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h12_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h12_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h12_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h12_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h12_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h12_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h12_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h12_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h12_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h12_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h12_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h12_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h12_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h12_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h12_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h12_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h15_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h15_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h15_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h15_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h15_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h15_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h15_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h15_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h15_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h15_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h15_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h15_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h15_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h15_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h15_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h15_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h15_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h15_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h32_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h32_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h32_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h32_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h32_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h32_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h32_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h32_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h32_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h32_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h32_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h32_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h32_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h32_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h32_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h32_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h32_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h32_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+  mlp_h256_do0.0_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 1.0
+      seed: 0
+  mlp_h256_do0.0_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 1.0
+      seed: 1
+  mlp_h256_do0.0_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 1.0
+      seed: 2
+  mlp_h256_do0.0_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 10.0
+      seed: 0
+  mlp_h256_do0.0_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 10.0
+      seed: 1
+  mlp_h256_do0.0_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 10.0
+      seed: 2
+  mlp_h256_do0.0_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 100.0
+      seed: 0
+  mlp_h256_do0.0_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 100.0
+      seed: 1
+  mlp_h256_do0.0_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.0
+      wd: 100.0
+      seed: 2
+  mlp_h256_do0.3_wd1_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 1.0
+      seed: 0
+  mlp_h256_do0.3_wd1_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 1.0
+      seed: 1
+  mlp_h256_do0.3_wd1_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 1.0
+      seed: 2
+  mlp_h256_do0.3_wd10_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 10.0
+      seed: 0
+  mlp_h256_do0.3_wd10_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 10.0
+      seed: 1
+  mlp_h256_do0.3_wd10_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 10.0
+      seed: 2
+  mlp_h256_do0.3_wd100_s0:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 100.0
+      seed: 0
+  mlp_h256_do0.3_wd100_s1:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 100.0
+      seed: 1
+  mlp_h256_do0.3_wd100_s2:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+      dropout: 0.3
+      wd: 100.0
+      seed: 2
+runs:
+- features:
+  - act_L21
+  probes:
+  - mlp_h5_do0.0_wd1_s0
+  - mlp_h5_do0.0_wd1_s1
+  - mlp_h5_do0.0_wd1_s2
+  - mlp_h5_do0.0_wd10_s0
+  - mlp_h5_do0.0_wd10_s1
+  - mlp_h5_do0.0_wd10_s2
+  - mlp_h5_do0.0_wd100_s0
+  - mlp_h5_do0.0_wd100_s1
+  - mlp_h5_do0.0_wd100_s2
+  - mlp_h5_do0.3_wd1_s0
+  - mlp_h5_do0.3_wd1_s1
+  - mlp_h5_do0.3_wd1_s2
+  - mlp_h5_do0.3_wd10_s0
+  - mlp_h5_do0.3_wd10_s1
+  - mlp_h5_do0.3_wd10_s2
+  - mlp_h5_do0.3_wd100_s0
+  - mlp_h5_do0.3_wd100_s1
+  - mlp_h5_do0.3_wd100_s2
+  - mlp_h8_do0.0_wd1_s0
+  - mlp_h8_do0.0_wd1_s1
+  - mlp_h8_do0.0_wd1_s2
+  - mlp_h8_do0.0_wd10_s0
+  - mlp_h8_do0.0_wd10_s1
+  - mlp_h8_do0.0_wd10_s2
+  - mlp_h8_do0.0_wd100_s0
+  - mlp_h8_do0.0_wd100_s1
+  - mlp_h8_do0.0_wd100_s2
+  - mlp_h8_do0.3_wd1_s0
+  - mlp_h8_do0.3_wd1_s1
+  - mlp_h8_do0.3_wd1_s2
+  - mlp_h8_do0.3_wd10_s0
+  - mlp_h8_do0.3_wd10_s1
+  - mlp_h8_do0.3_wd10_s2
+  - mlp_h8_do0.3_wd100_s0
+  - mlp_h8_do0.3_wd100_s1
+  - mlp_h8_do0.3_wd100_s2
+  - mlp_h10_do0.0_wd1_s0
+  - mlp_h10_do0.0_wd1_s1
+  - mlp_h10_do0.0_wd1_s2
+  - mlp_h10_do0.0_wd10_s0
+  - mlp_h10_do0.0_wd10_s1
+  - mlp_h10_do0.0_wd10_s2
+  - mlp_h10_do0.0_wd100_s0
+  - mlp_h10_do0.0_wd100_s1
+  - mlp_h10_do0.0_wd100_s2
+  - mlp_h10_do0.3_wd1_s0
+  - mlp_h10_do0.3_wd1_s1
+  - mlp_h10_do0.3_wd1_s2
+  - mlp_h10_do0.3_wd10_s0
+  - mlp_h10_do0.3_wd10_s1
+  - mlp_h10_do0.3_wd10_s2
+  - mlp_h10_do0.3_wd100_s0
+  - mlp_h10_do0.3_wd100_s1
+  - mlp_h10_do0.3_wd100_s2
+  - mlp_h12_do0.0_wd1_s0
+  - mlp_h12_do0.0_wd1_s1
+  - mlp_h12_do0.0_wd1_s2
+  - mlp_h12_do0.0_wd10_s0
+  - mlp_h12_do0.0_wd10_s1
+  - mlp_h12_do0.0_wd10_s2
+  - mlp_h12_do0.0_wd100_s0
+  - mlp_h12_do0.0_wd100_s1
+  - mlp_h12_do0.0_wd100_s2
+  - mlp_h12_do0.3_wd1_s0
+  - mlp_h12_do0.3_wd1_s1
+  - mlp_h12_do0.3_wd1_s2
+  - mlp_h12_do0.3_wd10_s0
+  - mlp_h12_do0.3_wd10_s1
+  - mlp_h12_do0.3_wd10_s2
+  - mlp_h12_do0.3_wd100_s0
+  - mlp_h12_do0.3_wd100_s1
+  - mlp_h12_do0.3_wd100_s2
+  - mlp_h15_do0.0_wd1_s0
+  - mlp_h15_do0.0_wd1_s1
+  - mlp_h15_do0.0_wd1_s2
+  - mlp_h15_do0.0_wd10_s0
+  - mlp_h15_do0.0_wd10_s1
+  - mlp_h15_do0.0_wd10_s2
+  - mlp_h15_do0.0_wd100_s0
+  - mlp_h15_do0.0_wd100_s1
+  - mlp_h15_do0.0_wd100_s2
+  - mlp_h15_do0.3_wd1_s0
+  - mlp_h15_do0.3_wd1_s1
+  - mlp_h15_do0.3_wd1_s2
+  - mlp_h15_do0.3_wd10_s0
+  - mlp_h15_do0.3_wd10_s1
+  - mlp_h15_do0.3_wd10_s2
+  - mlp_h15_do0.3_wd100_s0
+  - mlp_h15_do0.3_wd100_s1
+  - mlp_h15_do0.3_wd100_s2
+  - mlp_h32_do0.0_wd1_s0
+  - mlp_h32_do0.0_wd1_s1
+  - mlp_h32_do0.0_wd1_s2
+  - mlp_h32_do0.0_wd10_s0
+  - mlp_h32_do0.0_wd10_s1
+  - mlp_h32_do0.0_wd10_s2
+  - mlp_h32_do0.0_wd100_s0
+  - mlp_h32_do0.0_wd100_s1
+  - mlp_h32_do0.0_wd100_s2
+  - mlp_h32_do0.3_wd1_s0
+  - mlp_h32_do0.3_wd1_s1
+  - mlp_h32_do0.3_wd1_s2
+  - mlp_h32_do0.3_wd10_s0
+  - mlp_h32_do0.3_wd10_s1
+  - mlp_h32_do0.3_wd10_s2
+  - mlp_h32_do0.3_wd100_s0
+  - mlp_h32_do0.3_wd100_s1
+  - mlp_h32_do0.3_wd100_s2
+  - mlp_h256_do0.0_wd1_s0
+  - mlp_h256_do0.0_wd1_s1
+  - mlp_h256_do0.0_wd1_s2
+  - mlp_h256_do0.0_wd10_s0
+  - mlp_h256_do0.0_wd10_s1
+  - mlp_h256_do0.0_wd10_s2
+  - mlp_h256_do0.0_wd100_s0
+  - mlp_h256_do0.0_wd100_s1
+  - mlp_h256_do0.0_wd100_s2
+  - mlp_h256_do0.3_wd1_s0
+  - mlp_h256_do0.3_wd1_s1
+  - mlp_h256_do0.3_wd1_s2
+  - mlp_h256_do0.3_wd10_s0
+  - mlp_h256_do0.3_wd10_s1
+  - mlp_h256_do0.3_wd10_s2
+  - mlp_h256_do0.3_wd100_s0
+  - mlp_h256_do0.3_wd100_s1
+  - mlp_h256_do0.3_wd100_s2
+  preds: false

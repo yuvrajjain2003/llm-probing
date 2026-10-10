@@ -141,7 +141,7 @@ def make_checkpoints(
     out: list[Checkpoint] = []
     seen: set[int] = set()
     for f in fractions:
-        k = max(1, min(n, round(f * n)))
+        k = 0 if f == 0 else max(1, min(n, round(f * n)))  # f=0: empty prefix
         if k in seen:          # short CoTs can collapse fractions onto one cut
             continue
         seen.add(k)

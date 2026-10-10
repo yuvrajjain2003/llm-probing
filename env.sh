@@ -30,12 +30,19 @@ _ENV_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export REPO_DIR="${REPO_DIR:-$_ENV_SH_DIR}"
 
 # Bulk-storage root. Sycamore's per-user directory is /work/users/<u>/<s>/<user>
-# (first and second letter of the username). Elsewhere fall back to a gitignored
-# directory inside the repo so the same scripts still run.
+# (first and second letter of the username). If that doesn't exist, keep
+# everything in the repo folder itself: cache/, envs/ (gitignored) and runs/.
 if [ -z "${WORK_DIR:-}" ]; then
   _u="${USER:-$(id -un)}"
   _w="/work/users/${_u:0:1}/${_u:1:1}/${_u}"
-  if [ -d "$_w" ]; then WORK_DIR="$_w"; else WORK_DIR="${REPO_DIR}/.work"; fi
+  if [ -d "$_w" ]; then WORK_DIR="$_w"
+  else
+    WORK_DIR="${REPO_DIR}"
+    export RUNS_ROOT="${RUNS_ROOT:-${REPO_DIR}/runs}"
+    export ES_SRC="${ES_SRC:-${REPO_DIR}/envs/easysteer-src}"
+    export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${REPO_DIR}/cache/pip}"
+    export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${REPO_DIR}/cache/conda-pkgs}"
+  fi
 fi
 export WORK_DIR
 export ENVS_DIR="${ENVS_DIR:-${WORK_DIR}/envs}"

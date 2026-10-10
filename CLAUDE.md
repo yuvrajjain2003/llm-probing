@@ -7,12 +7,13 @@
 - **Minimal code.** Write the simplest code that works. No extra features, layers, or "just in case" options.
 - **Minimal changes.** When editing existing code, change only what's needed. No drive-by refactors or reformatting.
 - **Don't run long jobs without asking.** Use `sbatch --test-only` to check a submission without running it.
-- **Never `git push` without asking the user explicitly first.** Committing locally is fine when asked.
+- **Never `git push` without asking the user explicitly first.** Commit only when asked — usually near the end of a session, when the user says so.
 - **Read `learnings.md`** at the start of each session, and add to it when we learn something or make a mistake.
+- **Log every result** in "Results index" (path, what made it, status) as soon as it exists.
 - **Keep this file current.** At the start of each session, re-check "Repo state" below and update it. Mark tasks done in "Current work" as they finish.
 
 ## Repo state
-_Last updated: 2026-10-03_
+_Last updated: 2026-10-09_
 
 - **Folder:** `/proj/ssrivalab/projects/llm-probing` (group-shared, owned by user `yuvraj`). Git repo: `git@github.com:yuvrajjain2003/llm-probing.git`, branch `main`, at commit `28f0b56` (2026-10-01).
 - **Code:** `src/` (Python pipeline), `runs/gpqa25/*.sh` (current Slurm pipeline, numbered stages 00–09), `runs/goal1/full/`, `runs/goal2/` (older launchers), `env/` (setup), `env.sh` (paths).
@@ -22,8 +23,9 @@ _Last updated: 2026-10-03_
   - `runs/goal1/gpqa25/` — GPQA-Diamond, 198 questions × 25 CoTs, Qwen-7B. pass@1 0.487, majority-vote 0.551.
   - `runs/goal2/gpqa25/` — checkpoint activations, probes (`probes_ckpt/fast/`), ablation CSVs, capture check (PASSED).
   - `runs/*/smoke/` — small test runs.
-- **Paths caveat:** `env.sh` puts envs/cache/runs under `/work/users/r/i/rishp`, which doesn't exist for us, so it falls back to `<repo>/.work`. Existing outputs and cache are in `runs/` and `cache/` here. Decide where things should live before running anything.
-- **Python envs:** none set up for us yet (earlier ones were in yuvraj's `/work`, which we can't read).
+- **Paths:** `source env.sh` sets everything. We have no `/work/users/r/i/rishp`, so `env.sh` keeps all files in this folder: `cache/` (Qwen-7B weights already there), `envs/` (Python envs), `runs/` (outputs). `cache/` and `envs/` are gitignored. (Yuvraj has a `/work` dir, so his paths are unchanged.)
+- **Hardcoded paths:** none left in live code (checked `src/`, `runs/`, `env/`, `env.sh`). `archive/` still has old `/playpen-ssd/yuvraj` paths — it's reference-only code from an older machine, left as is.
+- **Python envs** (two, can't be merged — see `.claude/SETUP.md`): `envs/goal1` (`$PY`: generation + all analysis) and `envs/easysteer` (`$PY_ES`: activation capture only). Build logs: `runs/logs/setup/`.
 
 ## Slurm / cluster (Sycamore, UNC)
 - Account: `rc_ssriva_pi`, QOS: `normal`. Login node has no GPU — don't run heavy work there.
@@ -45,14 +47,104 @@ _Last updated: 2026-10-03_
   ```
 - Useful: `squeue -u $USER`, `sacct -j <id>`, `sbatch --test-only ...` (dry run), `sinfo -a` (shows hidden partitions).
 
+## Working alongside yuvraj (checked 2026-10-04)
+- His runs write to his own `/work/users/y/u/yuvraj/llm-probing/runs` (his `env.sh` resolves there — verified by sourcing as his user). Ours write only to `runs/` in this folder. No yuvraj jobs on this cluster or files in `runs/` since 2026-10-01, so his current RF runs are elsewhere.
+- Our sweep outputs live only in `runs/goal2/gpqa25/sweep/<name>/` (names new to us: `ref_fixed`, `4a_*`, `4b_*`, `4c_*`, `feat_*`, `emb_*`). Never write into `runs/goal2/gpqa25/{probes_ckpt,ablation}` (his).
+- **Git:** before any commit/push, `git fetch` and check `git log HEAD..origin/main`; if he pushed, rebase/merge and look at conflicts with the user. Never force-push. Files we changed that he may also edit: `src/generation/checkpoint.py`, `src/probing/extract_checkpoints.py`, `env.sh`, `.gitignore`, `CLAUDE.md`.
+
+## Results index
+_Where every output lives. Add a line whenever a new result is produced. All paths relative to repo root; all under `runs/` (gitignored, local only)._
+
+| what | path | produced by | status |
+|---|---|---|---|
+| Labels, 10–90% checkpoints | `runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B/labels/checkpoint_labels.csv` | yuvraj, Sep 2026 | done |
+| Labels, 0% checkpoint (198 rows, cot_id −1) | same dir, `checkpoint_labels_f0.csv` | `src/analysis/labels_f0.py` | done 2026-10-04 |
+| Activations, 10–90% (all 28 layers) | `runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B/` | yuvraj, Sep 2026 | done |
+| Activations, 0% (198, 28, 3584) | `runs/goal2/gpqa25/activations_ckpt_f0/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B/` | `runs/gpqa25/06b_extract_f0.sh`, job 4672844 | done 2026-10-04 |
+| Old probe results (old per-checkpoint folds) | `runs/goal2/gpqa25/probes_ckpt/fast/`, `runs/goal2/gpqa25/ablation/` | yuvraj | reference only |
+| Sweep sanity check (old folds; = old results) | `runs/goal2/gpqa25/sweep/baseline/results.csv` | `configs/sweep_baseline.yaml` | done 2026-10-04 |
+| **Reference: ridge/logistic on L21, prefix_len, TF-IDF (fixed folds)** | `runs/goal2/gpqa25/sweep/ref_fixed/results.csv` | `configs/sweep_ref.yaml`, jobs 4672913–17 | done 2026-10-04 |
+| Qwen3-Embedding-8B embeddings (24,773 × 4096, L2-normalised, incl. 0% rows) | `runs/goal2/gpqa25/embeddings/qwen3_emb_8b.npy` + `.keys.csv` | `runs/gpqa25/10_embed.sh`, job 4672850 (82 min, 1 H100) | done 2026-10-04 |
+| Baseline 1: ridge/logistic on Qwen3-8B embeddings | `runs/goal2/gpqa25/sweep/emb_qwen3_8b/results.csv` | `configs/sweep_emb.yaml`, jobs 4672979–83 | done 2026-10-04: activations beat embeddings on every target/checkpoint (mean R² gap: entropy +0.11, p_mode +0.08, rem_len_mean +0.17, rem_len_std +0.12); embeddings also below TF-IDF. Caveat: logistic C at grid edge (1e-4) in 46/50 folds → extend grid to 1e-6 before trusting `committed_by_here` |
+| Step 4 smoke test (all probe types, 20 questions) | `runs/goal2/gpqa25/sweep/smoke_all/` | `configs/sweep_smoke_all.yaml`, job 4672942 | done 2026-10-04 (all run; MLP on PCA-8 underfits: train R² 0.01) |
+| Step 4b: PCA-k → ridge/logistic | `runs/goal2/gpqa25/sweep/4b_pca/results.csv` | `configs/sweep_4b_pca.yaml`, jobs 4672945–49 | done 2026-10-04: every k loses to full 3584; k=5–15 keeps ~2/3 of entropy R² (0.20 vs 0.29) |
+| Embedder research | `docs/embedders.md` | step 2 | done 2026-10-04 |
+| Step 4a diagnostic: MLP training settings (h=8, 50% ckpt, entropy) | `runs/goal2/gpqa25/sweep/4a_diag/` | `configs/sweep_4a_diag.yaml`, job 4672951 | done: needs early stopping (no-stop → test R² 0.00); lr 1e-4 best (0.274 vs ridge 0.298) |
+| Step 4a MLP ablation (7 hidden × 4 dropout × 4 wd × 3 seeds, no selection) | `runs/goal2/gpqa25/sweep/4a_mlp_ablation/results.csv` (8400 rows) | `configs/sweep_4a_mlp_ablation.yaml`, jobs 4672956–65 | done 2026-10-04: hidden size barely matters (h=5 ≈ h=256); dropout ±0.005; **weight decay had NO effect** (identical to 3 dp — AdamW wd×lr 1e-4 too small with early stopping; grid needs ≥1 or an L2 loss term); seed std ~0.01 |
+| Step 4a MLP fair score (per hidden size; dropout×wd picked on inner folds) | `runs/goal2/gpqa25/sweep/4a_mlp_selected/results.csv` | `configs/sweep_4a_mlp_selected.yaml`, jobs 4672966–75 | done 2026-10-04: **no MLP beats ridge** (best hidden size vs ridge: mean −0.015, 3/25 tiny wins). Entropy 0.255–0.266 vs ridge 0.289. Supervised 5-dim MLP ≫ PCA-5 (0.256 vs 0.095) |
+| Step 4a weight-decay rerun: ablation (7 h × wd {1,10,100} × dropout {0,0.3} × 3 seeds) | `runs/goal2/gpqa25/sweep/4a_mlp_wd_ablation/results.csv` (3150 rows) | `configs/sweep_4a_mlp_wd_ablation.yaml`, jobs 4677644–48 | done 2026-10-04: wd now matters. wd=10 best for small h (entropy h=5: 0.253→0.271); wd=100 too strong for h≤32 but best for h=256 (0.281) |
+| Step 4a weight-decay rerun: fair score (dropout × wd {0,1,10,100} selected) | `runs/goal2/gpqa25/sweep/4a_mlp_wd_selected/results.csv` | `configs/sweep_4a_mlp_wd_selected.yaml`, jobs 4677649–53 | done 2026-10-04: MLPs now ≈ ridge, still not better (best per cell vs ridge: mean −0.003, 9/25 wins, max +0.004). wd=10 picked 72% of folds. Best: h=256 entropy 0.283 vs ridge 0.289 |
+| Step 4c random forest: ablation (2550 rows) + fair score (100 rows) | `runs/goal2/gpqa25/sweep/4c_rf_{ablation,selected}/results.csv` | `configs/sweep_4c_rf_*.yaml` (generators in `runs/sweep_tmp/`), jobs 4677654 (timing), 4677693–99, 4677989–91 | done 2026-10-04: **below ridge everywhere**. Best RF (raw or PCA-64): entropy 0.235, rem_len_mean 0.404 (ridge 0.289 / 0.524). max_features is the main knob; small leaves best; seed spread ≤0.003. Not run: raw max_features 0.3, max_depth 16 |
+| Step 4c' gradient boosting (HGB): ablation (2400 rows) + fair score (100 rows) | `runs/goal2/gpqa25/sweep/4c_hgb_{ablation,selected}/results.csv` | `configs/sweep_4c_hgb_*.yaml`, jobs 4677835 (cancelled, rows kept), 4677900–02, 4678022–24 | done 2026-10-04: **best tree model, still below ridge**. HGB raw: entropy 0.258, rem_len_mean 0.474, committed 0.734. Nearly insensitive to all hps (≤0.006); PCA inputs worse than raw |
+| F2LLM-v2-8B embeddings (2nd embedder, same method as Qwen3) | `runs/goal2/gpqa25/embeddings/f2llm_v2_8b.npy` | `10_embed.sh`, job 4677668 (85 min) | done 2026-10-04 |
+| Other-LLM control: Qwen2.5-Math-7B (our model's base) layer 21, last token, inputs cut to last 4096 tokens (26/44/55% of 50/70/90% inputs cut) | `runs/goal2/gpqa25/embeddings/qwen25_math_7b_L21.npy` | `10_embed.sh --layer 21 --no-instruct --max-len 4096`, job 4677669 (38 min) | done 2026-10-04 |
+| Other-LLM control: Qwen2.5-7B-Instruct layer 21, last token, full inputs | `runs/goal2/gpqa25/embeddings/qwen25_7b_instruct_L21.npy` | `10_embed.sh --layer 21 --no-instruct`, job 4677670 (66 min) | done 2026-10-04 |
+| Probes on the 3 features above (ridge + logistic C 1e-6..10), + Qwen3-emb logistic with the wider grid | `runs/goal2/gpqa25/sweep/feat_<name>/results.csv` | `configs/sweep_feat_<name>.yaml`, jobs 4677671–90 | done 2026-10-04: **other-LLM controls ≈ our model's activations** (mean over ckpts — entropy: ours 0.289, Qwen2.5-Math 0.283, Qwen2.5-Instruct 0.287; rem_len_mean 0.524 / 0.523 / 0.518; ours wins only 10–11/20 cells, mean gap ≤0.002). F2LLM-v2-8B worse than Qwen3-emb (entropy 0.157). Wider logistic grid didn't help Qwen3-emb (0.704 vs 0.707); C now mostly inside the grid |
+| **Interim update doc + 5 figures** | `docs/update_2026-10-05.md`, `docs/figures/fig{1..5}_*.png` | `src/viz/update_figures.py` (reads sweep CSVs) | done 2026-10-05 |
+| **R5/R6/R7: error bars (question bootstrap, 2000 draws), train vs test, MSE** — all from existing results/preds, no refitting | `runs/goal2/gpqa25/sweep/_round2/{chosen_probes.csv,r5_ci/,r6_overfit/,r7_mse/}`, figs `docs/figures/round2/r{5_ci_forest,6_train_vs_test,7_r2_vs_mse}.png` | `src/viz/round2_metrics.py`, job 4776925 (rerun 4776941 for legend) | done 2026-10-09: ours sig. > TF-IDF/prefix_len/Qwen3-emb/F2LLM on all 5 targets (entropy +0.05/+0.07/+0.11/+0.13); NOT sig. different from Qwen2.5-Instruct/Math controls (±0.006) or strong-wd MLP; sig. > HGB. Prefix_len ≈ ours for rem. length at 10–50% (n.s.), ours wins at 70/90%. CI half-width ≈ ±0.05 R². Overfitting: RF worst (entropy train 0.82 vs test 0.24), TF-IDF next; ridge gap 0.2 but best test. MSE ranks = R² ranks except mean-over-ckpt rem. length (prefix_len slightly lower MSE — early ckpts dominate MSE) |
+| R4: embedder trained length vs our input lengths | `runs/goal2/gpqa25/sweep/_round2/r4_embed_len/` (`length_stats.csv`, `length_bins.csv`), section appended to `docs/embedders.md` | job 4776919 | done 2026-10-09: nothing > 32k (no truncation). F2LLM training code runs at 1–2k tokens (repo config 1024; v2-8B's own config not seen); Qwen3-Emb training length unpublished. Our inputs >2048 tokens: 39/60/69/75% at 30/50/70/90%. No clear evidence embeddings degrade with length (emb/act MSE ratio U-shaped over length terciles). Optional: re-embed F2LLM truncated to 2048 (~45 min GPU, est.) |
+| R8 prep: LoRA+MLP-head probe code + CPU smoke test (tiny random model) | `src/probing/lora_probe.py`, `runs/gpqa25/12_lora.sh` (MODE=check / pilot / main), smoke → `runs/goal2/gpqa25/lora/smoke/` | job 4776948 | prep done 2026-10-09, NOT run on GPU. peft 0.21.2 in goal1 (--no-deps; torch/transformers unchanged). Design: ONE pooled model per fold (all checkpoints; scored per checkpoint) — deviates from per-checkpoint probes, user to confirm. Est. pilot 1–1.5 GPU-h, full 14–20 GPU-h (assumed throughput). Run `check` first (single- vs double-BOS match to stored activations unverified) |
+| R2: model bases (configs, tokenizers, weight similarity of R1-Distill, Qwen2.5-Math-7B, Qwen2.5-7B-Instruct, Qwen2.5-7B base) | `runs/goal2/gpqa25/sweep/_round2/r2_model_bases/{summary.csv,tensor_similarity.csv,config_tokenizer.txt}`, fig `docs/figures/round2/r2_weight_similarity.png` | `src/analysis/compare_model_weights.py`, jobs 4776915 (download Qwen2.5-7B) + 4776974 | done 2026-10-09: same architecture + tokenizer (ids) in all 4. Weights: R1-Distill vs Math rel. diff 0.14 (fine-tune of Math ✓); Instruct vs Base 0.013 (light post-training); Math vs Base 0.79 (far — heavy continued pretraining, cause not verified); R1-Distill vs Instruct 0.79. So the other-LLM controls share lineage/tokenizer but NOT near-identical weights. rope_theta 1e4 (R1-Distill, Math) vs 1e6 (Instruct, Base) |
+| R3: why RF < ridge (entropy + rem_len_mean, all ckpts) | `runs/goal2/gpqa25/sweep/_round2/r3_rf/r3_f*.csv`, `w_f*.csv`; figs `docs/figures/round2/r3_fig{1,2,3}_*.png` | `src/probing/r3_rf_diagnosis.py`, `src/viz/r3_figures.py`; jobs 4776944–57 (~20 CPU-h) | done 2026-10-09: **structural**. Ridge weights are dense (~1,600 of 3,584 dims hold 90% of weight energy). RF can't fit a known linear function on this X (noise-free synthetic: RF 0.68 vs ridge 0.92). Not overfitting-limited (leaf size 1→20 cuts train R² 0.90→0.58, test flat). Giving RF the ridge direction as 1 feature closes ~50% (entropy) / ~90% (rem_len) of the gap but never beats ridge; RF on PLS-5 = linear PLS-5. Not run: other targets, CIs |
+| R1 prep: ICL env + models + prompts + plans (no GPU yet) | env `envs/icl` (build: `env/setup_icl.sh`; vLLM 0.31.0, torch 2.13+cu130, transformers 5.17); models `Qwen/Qwen3.5-9B`, `google/gemma-4-31B-it` in cache; code `src/baselines/icl_predict.py` (plan/dry/run/score), GPU script `runs/gpqa25/11_icl.sh`; plans/token counts `runs/goal2/gpqa25/icl/`; dry-run prompts `runs/logs/round2/icl_plan_*.log` | R1 prep agent; `--test-only` 4776995–97 | prep done 2026-10-09. Max k (exact token counts, min over folds): ours 40, Qwen3.5-9B 92 (native 262k; 370 with YaRN), Gemma-4-31B-it 93. Thinking off by default (R1: prefill `</think>`). Est. cost: subsample (1 CoT/question × 6 ckpts ≈ 1,178 rows) ≈ 4–5 GPU-h total; full set ≈ 75 GPU-h. Unverified: prefix caching on hybrid/sliding-window models (main cost risk), loading, JSON quality |
+| R8 GPU check: LoRA model (no training) layer-21 state vs stored activations | `runs/logs/round2/lora_check_job4777564.log` | `12_lora.sh MODE=check`, job 4777564 (6 min) | done 2026-10-09: PASS, cosine min 0.9989 / mean 0.9996 (6 CoTs × 5 ckpts; single BOS OK). Pilot job 4777635 (0.5 ckpt, fold 0, 1 epoch) submitted after it |
+| R8 pilot: LoRA+MLP head, 50% ckpt, fold 0, 1 epoch | `runs/goal2/gpqa25/lora/pilot/{results,preds}.csv`, log `runs/logs/round2/lora_pilot_job4777635.log` | `12_lora.sh MODE=pilot`, job 4777635 (37 min, peak 15.7 GiB) | done 2026-10-09: ≈ ridge on the SAME 993 test rows (LoRA vs ridge: entropy 0.383 vs 0.367, p_mode 0.324/0.320, rem_len_mean 0.646/0.627, rem_len_std 0.386/0.407, committed acc 0.744/0.758). Early stopping not triggered (best val at last step) → more epochs may help. Fold 0 is easier than average (ridge pooled 0.298 entropy) |
+| R1 GPU smoke tests v1 (20 rows, k=10 + max, thinking off/on) | `runs/goal2/gpqa25/icl/raw/smoke_v1/`, logs `runs/logs/round2/icl_*_job47776*.log`, `*4777694*`, `*477774[2-6]*` | jobs 4777694, 4777742–46 (first try 4777558–63 failed: nvcc missing → fixed in 11_icl.sh) | done 2026-10-09. JSON answers: Qwen3.5 off 40/40, Gemma off 40/40, Gemma on 40/40; Qwen3.5 on 19/40 (hit 4k think cap); OUR MODEL 0/40 off and on (it solves the GPQA question instead). Prefix caching works (k=92: 8 rows in 26 s). Fix → v2: instruction repeated after the query, JSON forced via vLLM structured outputs (after thinking, via reasoning parser), think cap 16k (shrunk to fit ctx) |
+| R1 GPU smoke tests v2 (instruction repeated + forced JSON via reasoning parser) | `runs/goal2/gpqa25/icl/raw/smoke_v2/` | jobs 4778425–30 | done: off — Qwen/Gemma 40/40, ours 35/40 (k=10 copies an example's values; k=40 some runaway whitespace / nonsense values). On — Gemma's reasoning parser skipped thinking entirely (JSON only); Qwen k=92 7/20 and ours k=40 1/20 (thinking runs to the cap). → v3 |
+| R1 GPU smoke tests v3/v4 (FINAL setup): instruction repeated after query; answer forced to a compact-JSON regex (vLLM structured outputs); thinking on = two passes (think until end tag or 16k cap, then append end tag + forced answer) | `runs/goal2/gpqa25/icl/raw/*_smoke_fold*.csv` (older: `raw/smoke_v1..v3/`) | jobs 4778786–91 (Qwen, Gemma), 4779284–85 (ours, regex) | done 2026-10-09: 100% answers parse for all 3 models × off/on. Thinking: Gemma ~1.3k tokens, never capped; Qwen k=92 mostly hits 16k cap; ours k=40 hits cap. OUR MODEL's answers are degenerate (k=10 often copies an example's values; k=40 repeats one number in every field, e.g. all 12 or 1017) — a real result, not a bug. Smoke timings (6–8 rows, max k): ours off 8 s, Qwen off 26 s, Gemma off ~100 s; ours on ~250 s, Qwen on ~380 s, Gemma on ~320 s |
+| R1 FULL runs, thinking off (subsample, k {0,10,30,max}, new prompt without model name) | `runs/goal2/gpqa25/icl/raw/<model>_off_k<k>_fold<f>.csv`, logs `runs/logs/round2/icl_<model>_job<id>.log` | jobs 4787229 (ours), 4787230 (Qwen3.5-9B), 4787231 (Gemma, 2 GPUs), submitted 2026-10-10 15:11 | RUNNING. At 15 min: 17 files done, all answers parse. Startup 6 min (ours/Qwen) / 10 min (Gemma). While generating GPU at 100%; idle between folds (prompt building ~1 min). 240 rows at max k: ours 90 s, Qwen 107 s. Projected ~2–3 GPU-h total (est. had been ~7) |
+| Job logs | `runs/logs/{gpqa25,sweep,setup}/` | — | — |
+
+Sweep outputs: `results.csv` (one row per feature × probe × checkpoint × target; `--merge` after sharded runs) and `preds*.csv` (out-of-fold predictions).
+
 ## Current work
 _User gives direction; track tasks here. Mark `[x]` when done._
 - [x] Explore folder and cluster setup
 - [x] Pull code from GitHub into this folder
-- [ ] Set up our own Python environment (and decide where envs/cache/runs live)
+- [x] Set up our own Python environments (`envs/goal1`, `envs/easysteer`; built 2026-10-03, imports OK on login node)
+- [x] Point all paths at this folder (`env.sh` fallback)
+- [x] GPU check of both envs — job 4672741 PASSED (2026-10-04): H100, both envs see GPU, weights visible, internet OK. Output: `runs/logs/setup/gpu_check_4672741.out`
+
+### Baselines + probe sweeps (full plan: `PLAN.md`)
+- [x] Check 0% checkpoint → **broken** (gives first sentence, drops 10%)
+- [x] Write goals + plan (`PLAN.md`)
+- [x] 0. Fix 0% checkpoint: code fixed, labels in `labels/checkpoint_labels_f0.csv` (198 rows, join on example_id; cot_id=-1)
+- [x] 0b. 0% activations: job 4672844 done (8 min) → `runs/goal2/gpqa25/activations_ckpt_f0/` (198, 28, 3584); vectors ~0.96 correlated across questions (shared prompt template) — standardise before probing
+- [x] 1. Sweep pipeline: `src/probing/sweep.py` + `configs/`. Reproduces `probe_checkpoints.csv` (90/90 cells, max diff 5e-5; checked independently)
+- [x] 2. Pick sentence embedders → `docs/embedders.md` (shortlist verified on HF 2026-10-04)
+- [x] 3. Embeddings + baseline 1 (ridge/logistic): Qwen3-Emb-8B, F2LLM-v2-8B, other-LLM controls Qwen2.5-Math-7B + Qwen2.5-7B-Instruct. Script `src/probing/embed_prefixes.py` (`--layer` = LLM hidden-state mode)
+- [x] 4a–4c'. Probe architectures: MLP (+ wd rerun), PCA-k, random forest, gradient boosting — all done, none beats ridge
+- [ ] 4d. Follow-ups: other layers; 0% checkpoint probes (needs sweep config for f0 data); bootstrap CIs; best probes on embeddings/LLM controls; unrelated-LLM control (e.g. Llama-3.1-8B)
+- [x] 1b. FIXED folds in sweep.py (default; 198/198 questions same fold everywhere incl. 0%; 40/40/40/39/39). `configs/sweep_baseline.yaml` keeps old folds (`fixed_folds: false`).
+- [x] 1c. Reference ridge/logistic on fixed folds (done; scores within 0.04 of old folds, mean 0.007): jobs 4672913–17 → `runs/goal2/gpqa25/sweep/ref_fixed/` (the new baseline for all comparisons)
+- [ ] 5. LLM baselines 2 (zero-shot) and 3 (in-context)
+- [x] 6a. Interim update doc + figures: `docs/update_2026-10-05.md`, `docs/figures/` (2026-10-05)
+- [ ] 6. Final write-up
+- On hold: baseline 4 (forced answer at each prefix → entropy)
+
+### Round 2 (user list 2026-10-09; plan + checked facts: `PLAN.md` → ROUND 2)
+- [ ] R1. ICL baseline: different LLM, k labeled examples (FULL prefixes, not shortened) → predict targets; three LLMs. k=1000 can't fit any context; max ~85 (256k) / ~350 (1M). k ∈ {0, 10, 30, max} for all models (max ≈ ours 40 / Gemma 85 / Qwen3.5 350). Models (user): our model (max k≈40, 131k ctx), Qwen3.5-9B, Gemma-4-31B. Do before R8.
+- [x] R2. Check model bases (configs + weight similarity of R1-Distill-Qwen-7B, Qwen2.5-Math-7B, Qwen2.5-7B-Instruct)
+- [x] R3. Diagnose why RF < ridge
+- [x] R4. Embedder training lengths vs our input lengths
+- [x] R5. Error bars (question bootstrap via `bootstrap_ci.py`; pass `--preds`/`--out-dir` under `sweep/`)
+- [x] R6. Train vs test R² (overfitting) — from existing `results.csv`
+- [x] R7. MSE alongside R² — from existing `preds*.csv`
+- [ ] R8. LoRA + MLP-head probe on our model only (expand to other models later only if needed), same settings as existing probes (L21, last token, 5 targets, fixed folds) for direct comparison. `peft` install approved. After R1.
 
 ## Next steps
-- (waiting on user)
+**Where we stopped (2026-10-09, evening):** R2–R7 DONE. R1 smoke tests pass for all 3 models × thinking off/on (final setup in Results index). R8 check PASSED, pilot done (≈ ridge). No jobs running.
+- **Awaiting user approval:** (1) full R1 runs — 6 jobs (3 models × off/on), subsample ~1,178 rows, k {0,10,30,max}; est. ~55 GPU-h total (off ~7, on ~48; rough, from smoke timings), each job ≤ ~15 h wall. Command per job: `ICL_MODEL=<m> ICL_KS="0 10 30 <max>" ICL_EXTRA="--thinking <off|on>" sbatch -t 24:00:00 runs/gpqa25/11_icl.sh` (Gemma: `--gres=gpu:h100:2 --mem=192G`); then `icl_predict.py score`. (2) full R8 — 5 ckpts × 5 folds × 3 epochs, est. ~20–35 GPU-h, split by `FRACTIONS`.
+- **R1 prompt change (user, 2026-10-10):** model name removed from the instruction ("A small reasoning model was given…"); smoke tests v1–v4 still had it.
+- **R1 decisions (user, 2026-10-09):** subsample (1 CoT/question × 6 ckpts, ~1,178 rows); Qwen3.5-9B native 262k (max k 92, no YaRN); GPU smoke test per model BEFORE the full runs; run BOTH thinking off and thinking on.
+- **Submitted 2026-10-09:** ICL GPU smoke tests (20 rows, k=10 + max, thinking off/on) jobs 4777558–63 (r1qwen7b off/on = 58/61, qwen35_9b = 59/62, gemma4_31b = 60/63; logs `runs/logs/round2/icl_<model>_job<id>.log`, outputs `runs/goal2/gpqa25/icl/raw/*_smoke*`); LoRA `MODE=check` job 4777564 (`runs/logs/round2/lora_check_job4777564.log`). R8 script being changed to per-checkpoint mode (agent) before the pilot.
+- **R8 decisions (user, 2026-10-09):** ONE MODEL PER CHECKPOINT (same data exposure as the probes; ~5× the pooled cost); GPU `check` approved, then pilot.
+- Optional: re-embed F2LLM truncated to 2048 tokens (~45 min GPU, est.) — R4 says not needed.
+
+**Earlier (2026-10-05):** paused for reporting. No jobs running. Everything finished is in "Results index"; step status in `PLAN.md` → STATUS. Interim write-up: `docs/update_2026-10-05.md`.
+- **Headline:** ridge on full layer-21 activations is the best probe; MLP (even with strong wd), PCA-k, RF and gradient boosting all fall short. Activations beat TF-IDF / sentence embeddings, but hidden states of other Qwen2.5-7B models on the same text match our model's (so the edge is "a 7B LM reading the text", not reasoning-model-specific). Caveat: those controls share pretraining with our model.
+- **Next (pick with user):** (1) unrelated-LLM control, e.g. Llama-3.1-8B; (2) 0% checkpoint probes; (3) other layers; (4) bootstrap CIs on key comparisons; (5) step 5 LLM-predicts baselines (LLM not chosen); (6) optional: raw-input RF with max_features 0.3.
+- Nothing committed since `68a81ce`. Commit/push only when the user says (fetch + check origin/main first — see "Working alongside yuvraj").
 
 ---
 

@@ -1,0 +1,19 @@
+# 4a diagnostic: is the small MLP under-trained? One checkpoint, one target, fixed hps (no selection).
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/4a_diag
+folds: 5
+fractions: [0.5]
+targets: [answer_entropy_bits_mm]
+features:
+  act_L21:      {type: act, layers: [21]}
+  act_L21_pca8: {type: act, layers: [21], pca: 8}
+probes:
+  mlp_h8_lr1e-3_e50_p10:   {class: mlp, fixed: {hidden: 8, lr: 1.0e-3, epochs: 50,  patience: 10}}
+  mlp_h8_lr1e-3_e300_p30:  {class: mlp, fixed: {hidden: 8, lr: 1.0e-3, epochs: 300, patience: 30}}
+  mlp_h8_lr1e-2_e300_p30:  {class: mlp, fixed: {hidden: 8, lr: 1.0e-2, epochs: 300, patience: 30}}
+  mlp_h8_lr1e-3_e300_nostop: {class: mlp, fixed: {hidden: 8, lr: 1.0e-3, epochs: 300, patience: 0}}
+  mlp_h8_lr1e-4_e300_p30:  {class: mlp, fixed: {hidden: 8, lr: 1.0e-4, epochs: 300, patience: 30}}
+runs:
+  - {features: [act_L21, act_L21_pca8], probes: [mlp_h8_lr1e-3_e50_p10, mlp_h8_lr1e-3_e300_p30,
+     mlp_h8_lr1e-2_e300_p30, mlp_h8_lr1e-3_e300_nostop, mlp_h8_lr1e-4_e300_p30]}

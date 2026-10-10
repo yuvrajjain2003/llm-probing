@@ -1,0 +1,34 @@
+# Qwen2.5-7B-Instruct layer-21 last-token state, full inputs (other-LLM control). Fixed folds. Generated.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+out_dir: runs/goal2/gpqa25/sweep/feat_qwen25_7b_instruct_L21
+features:
+  qwen25_7b_instruct_L21:
+    type: npy
+    path: runs/goal2/gpqa25/embeddings/qwen25_7b_instruct_L21.npy
+    keys: runs/goal2/gpqa25/embeddings/qwen25_7b_instruct_L21.keys.csv
+probes:
+  ridge_act:
+    class: ridge
+    grid:
+      alpha:
+        logspace:
+        - 0
+        - 6
+        - 13
+  logistic_wide:
+    class: logistic
+    grid:
+      C:
+        logspace:
+        - -6
+        - 1
+        - 8
+runs:
+- features:
+  - qwen25_7b_instruct_L21
+  probes:
+  - ridge_act
+  - logistic_wide

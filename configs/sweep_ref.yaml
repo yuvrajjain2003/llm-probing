@@ -1,0 +1,29 @@
+# Reference sweep on FIXED per-question folds: ridge/logistic on act_L21, prefix_len, tfidf.
+# Format is documented at the top of src/probing/sweep.py.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/ref_fixed
+folds: 5
+fixed_folds: true      # same fold per question everywhere (the default)
+fold_seed: 0
+# fractions: [0.1, 0.3, 0.5, 0.7, 0.9]    # default: all in the data
+# targets: [rem_len_mean]                 # default: all 4 regression + 2 binary
+
+features:
+  act_L21:    {type: act, layers: [21]}
+  prefix_len: {type: prefix_len}
+  tfidf:      {type: tfidf}
+  # emb_x:    {type: npy, path: runs/.../emb.npy, keys: runs/.../emb_keys.parquet}
+
+probes:      # grids copy the ones used in probe_checkpoints.py for each feature type
+  ridge_act:     {class: ridge,    grid: {alpha: {logspace: [0, 6, 13]}}}
+  ridge_len:     {class: ridge,    grid: {alpha: {logspace: [-6, 3, 10]}}}
+  ridge_text:    {class: ridge,    grid: {alpha: {logspace: [-3, 3, 7]}}}
+  logistic:      {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+  # mlp_h8_do:   {class: mlp, fixed: {hidden: 8, dropout: 0.3, wd: 0.01}, grid: {lr: [1.0e-3, 3.0e-4]}}
+  # rf_d10:      {class: rf, fixed: {n_estimators: 200, max_depth: 10}}
+
+runs:
+  - {features: [act_L21],    probes: [ridge_act, logistic]}
+  - {features: [prefix_len], probes: [ridge_len, logistic]}
+  - {features: [tfidf],      probes: [ridge_text, logistic]}

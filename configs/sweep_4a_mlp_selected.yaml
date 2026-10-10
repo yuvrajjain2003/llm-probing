@@ -1,0 +1,108 @@
+# Step 4a FAIR SCORE (dropout x wd chosen on inner folds): 3584 -> h -> ReLU -> dropout -> 1, AdamW (wd), lr 1e-4, <=300 epochs, early stop
+# (patience 30, 15% of training QUESTIONS). Settings from 4a_diag (job 4672951). Generated; see PLAN.md step 4.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+targets:
+- answer_entropy_bits_mm
+- rem_len_mean
+- rem_len_std
+- p_mode
+- committed_by_here
+features:
+  act_L21:
+    type: act
+    layers:
+    - 21
+out_dir: runs/goal2/gpqa25/sweep/4a_mlp_selected
+probes:
+  mlp_h5_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 5
+    grid:
+      dropout: &id001
+      - 0.0
+      - 0.1
+      - 0.3
+      - 0.5
+      wd: &id002
+      - 0.0
+      - 0.001
+      - 0.01
+      - 0.1
+  mlp_h8_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 8
+    grid:
+      dropout: *id001
+      wd: *id002
+  mlp_h10_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 10
+    grid:
+      dropout: *id001
+      wd: *id002
+  mlp_h12_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 12
+    grid:
+      dropout: *id001
+      wd: *id002
+  mlp_h15_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 15
+    grid:
+      dropout: *id001
+      wd: *id002
+  mlp_h32_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 32
+    grid:
+      dropout: *id001
+      wd: *id002
+  mlp_h256_sel:
+    class: mlp
+    fixed:
+      lr: 0.0001
+      epochs: 300
+      patience: 30
+      hidden: 256
+    grid:
+      dropout: *id001
+      wd: *id002
+runs:
+- features:
+  - act_L21
+  probes:
+  - mlp_h5_sel
+  - mlp_h8_sel
+  - mlp_h10_sel
+  - mlp_h12_sel
+  - mlp_h15_sel
+  - mlp_h32_sel
+  - mlp_h256_sel

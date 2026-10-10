@@ -1,0 +1,25 @@
+# Step 4b: low-dimensional LINEAR controls. Layer-21 activations -> PCA to k dims (fit on each
+# training split only) -> ridge / logistic. Fixed per-question folds. See PLAN.md step 4.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/4b_pca
+folds: 5
+fold_seed: 0
+targets: [answer_entropy_bits_mm, rem_len_mean, rem_len_std, p_mode, committed_by_here]
+
+features:
+  act_L21_pca5:   {type: act, layers: [21], pca: 5}
+  act_L21_pca8:   {type: act, layers: [21], pca: 8}
+  act_L21_pca10:  {type: act, layers: [21], pca: 10}
+  act_L21_pca12:  {type: act, layers: [21], pca: 12}
+  act_L21_pca15:  {type: act, layers: [21], pca: 15}
+  act_L21_pca64:  {type: act, layers: [21], pca: 64}
+  act_L21_pca256: {type: act, layers: [21], pca: 256}
+
+probes:
+  ridge_pca: {class: ridge,    grid: {alpha: {logspace: [-3, 5, 9]}}}
+  logistic:  {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+
+runs:
+  - {features: [act_L21_pca5, act_L21_pca8, act_L21_pca10, act_L21_pca12, act_L21_pca15,
+                act_L21_pca64, act_L21_pca256], probes: [ridge_pca, logistic]}

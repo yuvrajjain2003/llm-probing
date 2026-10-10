@@ -1,0 +1,17 @@
+# Smoke test of every probe type for step 4 (run with --max-questions 20).
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/smoke_all
+folds: 5
+fractions: [0.5]
+targets: [answer_entropy_bits_mm, committed_by_here]
+features:
+  act_L21:      {type: act, layers: [21]}
+  act_L21_pca8: {type: act, layers: [21], pca: 8}
+probes:
+  ridge:    {class: ridge,    grid: {alpha: {logspace: [-3, 6, 4]}}}
+  logistic: {class: logistic, grid: {C: [0.01, 1.0]}}
+  mlp:      {class: mlp, fixed: {hidden: 8, epochs: 50, patience: 10}, grid: {dropout: [0.0, 0.3]}}
+  rf:       {class: rf, fixed: {n_estimators: 100, n_jobs: 8}, grid: {min_samples_leaf: [1, 20]}}
+runs:
+  - {features: [act_L21, act_L21_pca8], probes: [ridge, logistic, mlp, rf]}
