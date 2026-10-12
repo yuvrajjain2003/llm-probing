@@ -1,0 +1,42 @@
+# RF REGULARISED (user 2026-10-11): goal train ~ test. Raw L21, max_features 0.1, every grid point scored (no selection).
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+targets: [answer_entropy_bits_mm, rem_len_mean, rem_len_std, p_mode, committed_by_here]
+out_dir: runs/goal2/gpqa25/sweep/rf_reg
+features:
+  act_L21:
+    type: act
+    layers: [21]
+probes:
+  rf_dNone_l100:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: null, min_samples_leaf: 100, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_dNone_l200:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: null, min_samples_leaf: 200, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_dNone_l400:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: null, min_samples_leaf: 400, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d6_l100:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 6, min_samples_leaf: 100, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d6_l200:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 6, min_samples_leaf: 200, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d6_l400:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 6, min_samples_leaf: 400, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d3_l100:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 3, min_samples_leaf: 100, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d3_l200:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 3, min_samples_leaf: 200, max_features: 0.1, n_jobs: 12, seed: 0}
+  rf_d3_l400:
+    class: rf
+    fixed: {n_estimators: 300, max_depth: 3, min_samples_leaf: 400, max_features: 0.1, n_jobs: 12, seed: 0}
+runs:
+- features: [act_L21]
+  probes: [rf_dNone_l100, rf_dNone_l200, rf_dNone_l400, rf_d6_l100, rf_d6_l200, rf_d6_l400, rf_d3_l100, rf_d3_l200, rf_d3_l400]

@@ -106,8 +106,8 @@ class Head(torch.nn.Module):
     def __init__(self, d, hidden, dropout, mu, sd):
         super().__init__()
         self.register_buffer("mu", torch.tensor(mu)); self.register_buffer("sd", torch.tensor(sd))
-        self.net = torch.nn.Sequential(torch.nn.Linear(d, hidden), torch.nn.ReLU(), torch.nn.Dropout(dropout),
-                                       torch.nn.Linear(hidden, 5))
+        self.net = torch.nn.Linear(d, 5) if hidden == 0 else torch.nn.Sequential(   # hidden 0 = linear (ridge-like)
+            torch.nn.Linear(d, hidden), torch.nn.ReLU(), torch.nn.Dropout(dropout), torch.nn.Linear(hidden, 5))
 
     def forward(self, h):
         return self.net((h.float() - self.mu) / self.sd)
@@ -144,14 +144,21 @@ def run_fold(args, frac, fold, M, cases, fold_of, mu_sd, device):
     Z = Y.copy(); Z[:, :4] = (Y[:, :4] - ym) / ys
     Zt, Ok = torch.tensor(np.nan_to_num(Z), dtype=torch.float32), torch.tensor(~np.isnan(Y))
 
-    trunk, _ = load_trunk(args.layers, args.tiny, device)
     torch.manual_seed(args.seed + fold)
-    model = get_peft_model(trunk, LoraConfig(r=args.rank, lora_alpha=2 * args.rank, lora_dropout=0.0,
-                                             target_modules=LORA_MODULES))
-    if not args.tiny:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=dict(use_reentrant=False))
-    head = Head(trunk.config.hidden_size, args.hidden, args.dropout, *mu_sd(rows_tr)).to(device)
-    lora_p = [p for p in model.parameters() if p.requires_grad]
+    if args.frozen:   # control: no LoRA, same head + training on the STORED layer-21 states (CPU)
+        model, hid = torch.nn.Module(), torch.tensor(ACT, dtype=torch.float32)
+        enc = lambda c: hid[c["rows"]]
+        lora_p = []
+    else:
+        trunk, _ = load_trunk(args.layers, args.tiny, device)
+        enc = lambda c: model(input_ids=torch.tensor([c["ids"]], device=device)).last_hidden_state[0, c["pos"]]
+        only = dict(layers_to_transform=[l - 1 for l in args.lora_layers], layers_pattern="layers") if args.lora_layers else {}
+        model = get_peft_model(trunk, LoraConfig(r=args.rank, lora_alpha=2 * args.rank, lora_dropout=0.0,
+                                                 target_modules=LORA_MODULES, **only))   # lora_layers: 1-indexed decoder layers
+        if not args.tiny:
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=dict(use_reentrant=False))
+        lora_p = [p for p in model.parameters() if p.requires_grad]
+    head = Head(ACT.shape[1] if args.frozen else trunk.config.hidden_size, args.hidden, args.dropout, *mu_sd(rows_tr)).to(device)
     opt = torch.optim.AdamW([dict(params=lora_p, lr=args.lr), dict(params=head.parameters(), lr=args.head_lr)],
                             weight_decay=args.wd)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / args.warmup))
@@ -159,7 +166,7 @@ def run_fold(args, frac, fold, M, cases, fold_of, mu_sd, device):
 
     def seq_loss(i):
         c = cases[i]; r = c["rows"]
-        out = head(model(input_ids=torch.tensor([c["ids"]], device=device)).last_hidden_state[0, c["pos"]])
+        out = head(enc(c))
         return loss_fn(out, Zt[r].to(device), Ok[r].to(device))
 
     def val_loss():
@@ -175,7 +182,7 @@ def run_fold(args, frac, fold, M, cases, fold_of, mu_sd, device):
         with torch.no_grad():
             for i in idx:
                 c = cases[i]
-                P.append(head(model(input_ids=torch.tensor([c["ids"]], device=device)).last_hidden_state[0, c["pos"]]).cpu().numpy())
+                P.append(head(enc(c)).cpu().numpy())
                 rows.append(c["rows"])
         model.train(); head.train()
         rows, P = np.concatenate(rows), np.concatenate(P)
@@ -210,6 +217,14 @@ def run_fold(args, frac, fold, M, cases, fold_of, mu_sd, device):
         p.data.copy_(s.to(p.device))
     head.load_state_dict(best_state[1])
 
+    if args.save_states:   # adapted layer-21 state of EVERY row at this fraction (train + test) -> lora_ridge.py
+        model.eval()
+        with torch.no_grad():
+            S = [(c["rows"], enc(c).float().cpu().numpy()) for c in cases]
+        model.train()
+        np.savez(Path(args.out_dir) / f"states.f{frac}.fold{fold}.npz", rows=np.concatenate([r for r, _ in S]),
+                 X=np.concatenate([x for _, x in S]).astype(np.float16))
+
     out = []
     sub = rng.choice(tr, min(args.train_score_cots, len(tr)), replace=False)
     for split, idx in [("test", te), ("train", sub)]:
@@ -239,7 +254,7 @@ def finalize(args, M):
                 y = y.astype(int)
             trd = tr[(np.isclose(tr.fraction, f)) & tr[f"y_{t}"].notna()]
             ytr = trd[f"y_{t}"].to_numpy(); ytr = ytr.astype(int) if kind == "bin" else ytr
-            r = dict(feature="act_L21_lora", probe="lora_mlp", fraction=f, target=t, n=int(ok.sum()),
+            r = dict(feature="act_L21_lora", probe="lora_linear" if args.hidden == 0 else "lora_mlp", fraction=f, target=t, n=int(ok.sum()),
                      metric="acc" if kind == "bin" else "R2", test=score(kind, y, p),
                      train=score(kind, ytr, trd[f"p_{t}"].to_numpy()), test_auc=np.nan,
                      hp=json.dumps(vars(args)), runtime_s=np.nan)
@@ -248,7 +263,7 @@ def finalize(args, M):
                 r["test_auc"] = float(roc_auc_score(y, p)) if len(np.unique(y)) > 1 else np.nan
             R.append(r)
             q = d.loc[ok, KEYS].copy()
-            q.insert(0, "target", t); q.insert(0, "probe", "lora_mlp"); q.insert(0, "feature", "act_L21_lora")
+            q.insert(0, "target", t); q.insert(0, "probe", "lora_linear" if args.hidden == 0 else "lora_mlp"); q.insert(0, "feature", "act_L21_lora")
             q["y_true"], q["y_pred"] = y, p
             P.append(q)
     pd.DataFrame(R).to_csv(Path(args.out_dir) / "results.csv", index=False)
@@ -266,7 +281,8 @@ def main():
     ap.add_argument("--fractions", type=float, nargs="+", default=[0.1, 0.3, 0.5, 0.7, 0.9])
     ap.add_argument("--layers", type=int, default=21)
     ap.add_argument("--rank", type=int, default=16)
-    ap.add_argument("--hidden", type=int, default=256); ap.add_argument("--dropout", type=float, default=0.3)
+    ap.add_argument("--lora-layers", type=int, nargs="+", help="1-indexed decoder layers to adapt (default: all)")
+    ap.add_argument("--hidden", type=int, default=256, help="0 = linear head"); ap.add_argument("--dropout", type=float, default=0.3)
     ap.add_argument("--lr", type=float, default=1e-4); ap.add_argument("--head-lr", type=float, default=1e-3)
     ap.add_argument("--wd", type=float, default=0.01); ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--accum", type=int, default=16, help="sequences per optimizer step")
@@ -276,6 +292,8 @@ def main():
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--train-score-cots", type=int, default=400)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--save-states", action="store_true", help="save adapted layer-21 states of all rows per fold (for lora_ridge.py)")
+    ap.add_argument("--frozen", action="store_true", help="control: no LoRA, train the head on stored activations (CPU)")
     ap.add_argument("--check", action="store_true"); ap.add_argument("--check-n", type=int, default=6)
     ap.add_argument("--double-bos", action="store_true", help="feed BOS twice, as EasySteer did (check only)")
     ap.add_argument("--tiny", action="store_true", help="CPU smoke test: tiny random Qwen2")
@@ -283,7 +301,7 @@ def main():
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
-    device = "cpu" if args.tiny else "cuda"
+    device = "cpu" if args.tiny or args.frozen else "cuda"
     M = load_meta(Path(args.act_dir), Path(args.run_dir))
     if args.max_questions:
         M = M[M.example_id.isin(sorted(M.example_id.unique())[:args.max_questions])]
@@ -302,6 +320,7 @@ def main():
         d = 64; mu_sd = lambda rows: (np.zeros(d, np.float32), np.ones(d, np.float32))
     else:
         A = Act(M, dict(act_dir=args.act_dir), [21]).raw
+        global ACT; ACT = A
         def mu_sd(rows):                                # train-row stats of the stored layer-21 states
             sd = A[rows].std(0); sd[sd < 1e-8] = 1.0
             return A[rows].mean(0), sd
