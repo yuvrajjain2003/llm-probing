@@ -17,6 +17,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --time=02:00:00
+#SBATCH --output=runs/logs/slurm/slurm-%j.out
 set -uo pipefail
 source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sbatch}}/runs/gpqa25/common.sh"
 need_py "$PY"; need_weights; need_data

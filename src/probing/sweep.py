@@ -114,7 +114,15 @@ def register_feature(name):
 class Feature:
     """self.raw: row-aligned with M (dense float32 (n, d), or an object array of texts)."""
     def prep(self, A_tr, A_te):
-        """Fit on train rows only; return model inputs (default: standardise dense)."""
+        """Fit on train rows only; return model inputs (default: standardise dense).
+        per_layer = n: split columns into n equal blocks (layers), standardise + PCA each, concatenate."""
+        n = getattr(self, "per_layer", 0)
+        if n:
+            out = [self._prep(a, b) for a, b in zip(np.split(A_tr, n, 1), np.split(A_te, n, 1))]
+            return np.concatenate([o[0] for o in out], 1), np.concatenate([o[1] for o in out], 1)
+        return self._prep(A_tr, A_te)
+
+    def _prep(self, A_tr, A_te):
         mu, sd = A_tr.mean(0), A_tr.std(0)
         sd[sd < 1e-8] = 1.0
         Z_tr, Z_te = (A_tr - mu) / sd, (A_te - mu) / sd
@@ -131,8 +139,9 @@ class Feature:
 @register_feature("act")
 class Act(Feature):
     """layers: 1-indexed decoder layers (act_L21 <-> layers [21]); several are concatenated.
-    Only those layers are read, via mmap."""
-    def __init__(self, M, cfg, layers):
+    Only those layers are read, via mmap. pca_per_layer: with `pca: k`, PCA-k of each layer, concatenated."""
+    def __init__(self, M, cfg, layers, pca_per_layer=False):
+        self.per_layer = len(layers) if pca_per_layer else 0
         for sh, rows in M.groupby("_shard").indices.items():
             a = np.load(Path(cfg["act_dir"]) / f"activations.{sh}.npy", mmap_mode="r")
             r = M._row.to_numpy()[rows]

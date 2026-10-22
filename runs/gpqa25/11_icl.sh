@@ -14,6 +14,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=96G
 #SBATCH --time=12:00:00
+#SBATCH --output=runs/logs/slurm/slurm-%j.out
 set -euo pipefail
 source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sbatch}}/runs/gpqa25/common.sh"
 export HF_TOKEN="${HF_TOKEN:-dummy}" HF_HUB_OFFLINE=1

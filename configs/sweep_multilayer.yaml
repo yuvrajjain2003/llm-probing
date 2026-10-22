@@ -1,0 +1,28 @@
+# Multi-layer features (lab mate's recipe, 2026-10-17): per-layer PCA-64 of 3 consecutive layers at
+# ~45-55% depth (layers 13-15 of 28), concatenated -> ridge / logistic. Plus the same around our layer 21,
+# and controls (single-layer PCA, full raw layers). PCA and standardising fit on training rows only.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/multilayer
+folds: 5
+fold_seed: 0
+targets: [answer_entropy_bits_mm, rem_len_mean, rem_len_std, p_mode, committed_by_here]
+
+features:
+  act_L13_15_pp64: {type: act, layers: [13, 14, 15], pca: 64, pca_per_layer: true}
+  act_L20_22_pp64: {type: act, layers: [20, 21, 22], pca: 64, pca_per_layer: true}
+  act_L14_pca64:   {type: act, layers: [14], pca: 64}
+  act_L14_pca192:  {type: act, layers: [14], pca: 192}
+  act_L21_pca192:  {type: act, layers: [21], pca: 192}
+  act_L14:         {type: act, layers: [14]}
+  act_L13_15:      {type: act, layers: [13, 14, 15]}
+  act_L20_22:      {type: act, layers: [20, 21, 22]}
+
+probes:      # same grids as 4b (PCA) and ref_fixed (raw)
+  ridge_pca: {class: ridge,    grid: {alpha: {logspace: [-3, 5, 9]}}}
+  ridge_act: {class: ridge,    grid: {alpha: {logspace: [0, 6, 13]}}}
+  logistic:  {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+
+runs:
+  - {features: [act_L13_15_pp64, act_L20_22_pp64, act_L14_pca64, act_L14_pca192, act_L21_pca192], probes: [ridge_pca, logistic]}
+  - {features: [act_L14, act_L13_15, act_L20_22], probes: [ridge_act, logistic]}

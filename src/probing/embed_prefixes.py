@@ -63,6 +63,8 @@ def main():
     p.add_argument("--limit", type=int, default=0, help="only first N rows (testing)")
     p.add_argument("--layer", type=int, help="LLM control: hidden state after this decoder layer")
     p.add_argument("--no-instruct", action="store_true")
+    p.add_argument("--pooling", choices=["last", "cls"], default="last",
+                   help="cls: first-token pooling for BERT-style encoders (right padding)")
     a = p.parse_args()
 
     rows = load_rows(Path(a.run_dir), Path(a.f0_input) if a.f0_input else None,
@@ -71,9 +73,12 @@ def main():
         rows = rows.iloc[: a.limit]
     out = Path(a.out_dir); cdir = out / f"{a.name}.chunks"; cdir.mkdir(parents=True, exist_ok=True)
 
-    tok = AutoTokenizer.from_pretrained(a.model, padding_side="left", truncation_side="left")
-    model = AutoModel.from_pretrained(a.model, torch_dtype=torch.bfloat16,
-                                      attn_implementation="sdpa").cuda().eval()
+    tok = AutoTokenizer.from_pretrained(a.model, truncation_side="left",
+                                        padding_side="right" if a.pooling == "cls" else "left")
+    if tok.pad_token is None:                       # e.g. Mistral; pads are masked, so unused
+        tok.pad_token = tok.eos_token
+    model = AutoModel.from_pretrained(a.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa",
+                                      trust_remote_code=True).cuda().eval()   # remote code: UltraBERT
     lens = np.array([len(t) for t in tok(rows.text.tolist(), add_special_tokens=True)["input_ids"]])
     print(f"{len(rows)} texts, tokens median {np.median(lens):.0f} max {lens.max()}, "
           f"truncated (> {a.max_len}): {(lens > a.max_len).sum()}", flush=True)
@@ -93,7 +98,9 @@ def main():
             enc = tok(rows.text.iloc[b].tolist(), padding=True, truncation=True,
                       max_length=a.max_len, return_tensors="pt").to("cuda")
             with torch.no_grad():
-                if a.layer is None:
+                if a.pooling == "cls":
+                    h = F.normalize(model(**enc).last_hidden_state[:, 0].float(), dim=-1)   # CLS (right padded)
+                elif a.layer is None:
                     h = F.normalize(model(**enc).last_hidden_state[:, -1].float(), dim=-1)  # last token (left padded)
                 else:
                     h = model(**enc, output_hidden_states=True).hidden_states[a.layer][:, -1].float()

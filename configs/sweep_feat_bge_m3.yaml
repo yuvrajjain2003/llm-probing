@@ -1,0 +1,34 @@
+# BGE-M3 embedding (long-trained embedder, 2026-10-15). Fixed folds.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+folds: 5
+fold_seed: 0
+out_dir: runs/goal2/gpqa25/sweep/feat_bge_m3
+features:
+  bge_m3:
+    type: npy
+    path: runs/goal2/gpqa25/embeddings/bge_m3.npy
+    keys: runs/goal2/gpqa25/embeddings/bge_m3.keys.csv
+probes:
+  ridge_act:
+    class: ridge
+    grid:
+      alpha:
+        logspace:
+        - 0
+        - 6
+        - 13
+  logistic_wide:
+    class: logistic
+    grid:
+      C:
+        logspace:
+        - -6
+        - 1
+        - 8
+runs:
+- features:
+  - bge_m3
+  probes:
+  - ridge_act
+  - logistic_wide

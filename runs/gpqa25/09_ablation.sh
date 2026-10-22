@@ -13,6 +13,7 @@
 #SBATCH --mem=96G
 #SBATCH --time=24:00:00
 #SBATCH --open-mode=append
+#SBATCH --output=runs/logs/slurm/slurm-%j.out
 set -uo pipefail
 source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sbatch}}/runs/gpqa25/common.sh"
 need_py "$PY"

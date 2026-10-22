@@ -79,3 +79,47 @@ Trained vs supported length (what I could verify):
 - Controls: Qwen2.5-Math-7B config max_position_embeddings 4096; Qwen2.5-7B-Instruct 32768 (Qwen2.5 report 2412.15115: "extend the context length from 4,096 to 32,768 tokens during the final" pretraining phase); R1-Distill-Qwen-7B config 131072 but rope_theta 10000 (training length not found; R1 paper text had no context-length line).
 
 Our inputs (instruction + question + choices + prefix, each model's tokenizer; Qwen3 and F2LLM give identical counts): median 190 / 689 / 1.6k / 2.6k / 3.6k / 4.5k tokens at 0/10/30/50/70/90%; max 2.8k ... 14.9k. Share above 1024 tokens: 0.5/27/68/80/88/92%; above 2048: 0.5/0.6/39/60/69/75%; above 8192: 0 up to 16.6% at 90%; nothing above 32768. Nothing was truncated in the earlier runs.
+
+## 2026-10-15: long-trained embedders + other-family LLM controls (research only, nothing downloaded)
+
+Goal: embedders whose *training* length (not just max context) is close to our inputs (median 0.7k/1.6k/2.6k/3.6k/4.5k tokens at 10–90%, p90 up to 9.2k, max 14.9k; Qwen3 tokenizer, see R4 above).
+
+### Training length, checked in the papers / cards
+| Model | Params | Max ctx | Trained length (what I read) | LongEmbed | Notes |
+|---|---|---|---|---|---|
+| `dmis-lab/UltraBERT-Embed-150M` | 0.15B | 32k | Card: stage 2 contrastive "inputs up to 32K tokens so long documents are seen whole" (stage 1 length not stated). Paper arXiv 2610.15028 not indexed yet | 79.3 (best open dense) | Released 2026-10-10. CLS pooling. Needs transformers ≥5 + sentence-transformers ≥6, trust_remote_code (envs/icl has transformers 5.17). Apache-2.0 |
+| `togethercomputer/m2-bert-80M-32k-retrieval` (id from memory, not checked) | 0.08B | 32k | Paper 2402.07440: MLM pretraining at 32k (mix of short + concatenated long), retrieval fine-tune with single-sample batches (OPL loss) for long docs | not on board | Monarch Mixer (not attention), custom code, BERT tokenizer. 2024 |
+| `BAAI/bge-m3` | 0.57B | 8192 | Paper 2402.03216 App.: RetroMAE at 8192; unsupervised contrastive with passages up to 8192; fine-tune includes long-doc data (MLDR + synthetic) | 59.5 | XLM-R tokenizer; truncates our longest prefixes. MIT |
+| `Alibaba-NLP/gte-multilingual-base` (mGTE) | 0.31B | 8192 | Paper 2407.19669: MLM to 8192; contrastive pretraining at 1024 (docs); fine-tuning "8192-context data" with dynamic batching | 62.1 | Apache-2.0 |
+| `ibm-granite/granite-embedding-english-r2` | 0.15B | 8192 | Paper 2508.21085: MLM + RetroMAE at 8192, but contrastive/distillation at **1024** | 65.6 | Not truly long-trained in the contrastive stage |
+| `BidirLM/BidirLM-1B-Embedding` | 1.0B | 32k | Paper 2604.02045: MNTP at 8192, contrastive at **512** | 76.4 | Exclude: short contrastive |
+| Qwen3-Emb-8B, F2LLM-v2-8B (already run), `infly/inf-retriever-v1` (7B), pplx-embed-v1 (4B), jina-v3/v4/v5 | 0.6–8B | 8k–32k | Training length **not published** (F2LLM's public code: 1–2k) | 70–77 | No verified long training |
+
+Finding: every embedder I could verify as trained contrastively on ≥8k-token documents is a small encoder (80M–570M). I found no ≥1B open embedder with a published long contrastive training length. LongEmbed is passkey/needle-heavy retrieval, so its rank is weak evidence for our use.
+
+### Other-family LLMs for the "different LLM reads the text" control (HF configs fetched 2026-10-15)
+| Model | Family | Layers / hidden | Context | Access |
+|---|---|---|---|---|
+| `meta-llama/Llama-3.1-8B` | Meta Llama | 32 / 4096 | 128k (llama3 rope scaling) | gated (manual approval); ungated mirrors exist |
+| `allenai/Olmo-3-1025-7B` | AI2 OLMo | 32 / 4096 | 65k (YaRN from 8k; sliding window 4096 on some layers) | open, Apache-2.0, open training data |
+| `mistralai/Mistral-7B-v0.3` | Mistral | 32 / 4096 | 32k | open, Apache-2.0 |
+| `ibm-granite/granite-3.3-8b-base` | IBM Granite | 40 / 4096 | 128k | open, Apache-2.0 |
+| `deepseek-ai/DeepSeek-R1-Distill-Llama-8B` | Llama backbone, same R1 distillation | 32 / 4096 | 128k | open, MIT |
+Not suitable: `allenai/OLMo-2-1124-7B` (4k context), Gemma-3-12B (gated, 12B). Layer: same relative depth as ours (21/28 = 0.75 → layer 24 of 32, 30 of 40).
+
+### 2026-10-15 (2): more long-trained embedders, any size
+Checked in papers (pdftotext of arXiv PDFs) or model cards. "Long" = the contrastive/distillation stage itself saw long inputs.
+
+| Model | Params | Max ctx | Contrastive/distill training length | Verdict |
+|---|---|---|---|---|
+| `nomic-ai/nomic-embed-text-v1` / `v1.5` | 0.14B | 8192 | Paper 2402.01613: "We train all stages with a max sequence length of 2048"; >2048 via Dynamic NTK at inference | Moderately long (2k ≈ our 30–50% medians) |
+| `ibm-granite/granite-embedding-311m-multilingual-r2` (and 97m) | 0.31B | 32,768 | Paper 2605.13521: encoder trained to 8192; distillation in 2 phases, 512 then **extended to 4k** | Long-ish (4k) |
+| `dwzhu/e5-base-4k` | 0.11B | 4096 | LongEmbed paper 2404.12096: position embeddings extended 512→4096 and further fine-tuned ("E5Base + Tuning (4k)"); paper notes the usual training data are short | Tuned for 4k positions |
+| `Alibaba-NLP/gte-modernbert-base` | 0.15B | 8192 | Not stated ("follows the previous GTE scheme"; gte-v1.5 used 512) | Not verified; LoCo avg 88.9 |
+| `hotchpotch/bekko-embedding-v1-a25m` | 0.12B (25M active) | 8192 | Not stated on card | Not verified; LongEmbed 73.2 |
+| `Alibaba-NLP/gte-base-en-v1.5` | 0.14B | 8192 | Card: MLM to 8192, contrastive pre-training max_len **512**, fine-tune TODO | Short |
+| `Snowflake/snowflake-arctic-embed-l-v2.0` | 0.57B | 8192 | Paper 2412.04506: fine-tuning extends to **512** | Short |
+| `jinaai/jina-embeddings-v2-base-en` | 0.14B | 8192 | Card: "trained using 512 sequence length", ALiBi extrapolation | Short |
+| `lightonai/GTE-ModernColBERT-v1` | 0.15B | 8k+ | Card: documents **300** tokens; multi-vector (not one vector) | Short, multi-vector |
+
+Combined ranking of verified long-trained single-vector embedders: UltraBERT-Embed-150M (32k), M2-BERT-32k (32k), BGE-M3 (8k), mGTE (8k fine-tune), Granite-multilingual-R2-311M (4k distill), e5-base-4k (4k), nomic-embed-text-v1.5 (2k).

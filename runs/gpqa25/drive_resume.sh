@@ -25,6 +25,7 @@
 #SBATCH --mem=8G
 #SBATCH --time=46:00:00
 #SBATCH --open-mode=append
+#SBATCH --output=runs/logs/slurm/slurm-%j.out
 set -uo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "${BASH_SOURCE[0]}")/../..}" || exit 1
 [ -f env.sh ] || cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1

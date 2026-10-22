@@ -18,6 +18,7 @@
 #SBATCH --time=2-00:00:00
 #SBATCH --requeue
 #SBATCH --open-mode=append
+#SBATCH --output=runs/logs/slurm/slurm-%j.out
 set -euo pipefail
 source "${REPO_DIR:-${SLURM_SUBMIT_DIR:?run 'source env.sh' in the repo, then sbatch}}/runs/gpqa25/common.sh"
 
