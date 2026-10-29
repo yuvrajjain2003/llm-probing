@@ -23,7 +23,7 @@ cd "$REPO_DIR"
 
 # ── What this run is ──────────────────────────────────────────────────────────
 QUEUE_ROOT="${QUEUE_ROOT:-$RUNS_ROOT/queue/${RUN_TAG:-gpqa25}}"
-DATASET=gpqa_diamond
+DATASET="${DATASET:-gpqa_diamond}"      # any key of DATASETS in src/generation/run_eval.py
 MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 MODEL_SLUG="${MODEL##*/}"
 RUN_TAG="${RUN_TAG:-gpqa25}"            # keep separate from the old 3-CoT design's runs/
@@ -249,6 +249,7 @@ cont_shard() {
     --max-n-per-request "$MAXN" --max-num-seqs "$MAX_NUM_SEQS" \
     $V2_FLAG \
     --tensor-parallel-size 1 --gpu-memory-utilization "${GPU_UTIL_EFFECTIVE:-$GPU_UTIL}" --swap-space "$SWAP_GB" \
+    --subset-mod "${SUBSET_MOD:-1}" --subset-keep "${SUBSET_KEEP:-0}" \
     --num-shards "$NSHARDS" --shard-index "$1" --resume || return 1
 }
 extract_shard() {

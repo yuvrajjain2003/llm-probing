@@ -382,6 +382,14 @@ DATASETS: dict[str, dict] = {
         choices=_mmlu_choices,
         filter_fn=lambda ex: ex["category"] == "math",
     ),
+    "mmlu_pro": dict(   # all 14 categories, up to 10 options (A-J)
+        hf_name="TIGER-Lab/MMLU-Pro", hf_config=None, split="test", is_mc=True,
+        question=lambda ex: ex["question"],
+        gold=lambda ex: ex["answer"].strip().upper(),
+        choices=_mmlu_choices,
+        filter_fn=None,
+        meta=lambda ex: {"category": ex["category"]},
+    ),
     "arc_challenge": dict(
         hf_name="allenai/ai2_arc", hf_config="ARC-Challenge", split="test", is_mc=True,
         question=lambda ex: ex["question"],

@@ -27,6 +27,9 @@ DOWNLOADS: dict[str, dict] = {
         hf_name="TIGER-Lab/MMLU-Pro", hf_config=None,
         filter_fn=lambda ex: ex["category"] == "math",
     ),
+    "mmlu_pro": dict(
+        hf_name="TIGER-Lab/MMLU-Pro", hf_config=None, filter_fn=None,
+    ),
     "openbookqa": dict(
         hf_name="allenai/openbookqa", hf_config="main", filter_fn=None,
     ),
