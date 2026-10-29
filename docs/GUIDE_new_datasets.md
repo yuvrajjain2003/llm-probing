@@ -26,8 +26,9 @@ Ask; do not guess. Suggested values in brackets.
    more questions with **2-5 CoTs each** gives better probes than few questions with 25 [ask].
 3. **0% cut and K.** The 0% cut's labels are NOT made from continuations: continuing from an empty
    prefix is the same as sampling a fresh answer, so its labels come from the base CoTs, and **its
-   K equals `N_COTS`**. With 2-5 CoTs the 0% labels rest on 2-5 samples. Options: (a) set
-   `N_COTS` ≥ K*, (b) accept noisy 0% labels, (c) ask for a separate 0% sampling stage (not built).
+   K equals `N_COTS`**. With 2-5 CoTs the 0% labels rest on 2-5 samples.
+   **Decided by the user (2026-10-29): accept noisy 0% labels for now.** Do not raise `N_COTS` or
+   add a 0% sampling stage for this reason; just state `N_COTS` as the 0% K in your report.
 4. **How K\* is chosen** (write it down before seeing results). Suggested: the largest of the
    Miller-Madow bias K (`k_bias_mm`) and the commitment-agreement K (`k_decision`) in
    `summary.csv`, checked at every cut point (`frac=...` rows), plus an eyeball check that the
