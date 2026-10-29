@@ -17,7 +17,7 @@ import pandas as pd
 from transformers import AutoTokenizer
 from generation.run_eval import _load_jsonl
 from generation.continuations import _remaining_reasoning_tokens
-from analysis.labels import _checkpoint_row
+from analysis.labels import _checkpoint_row, add_norm_entropy
 
 p = argparse.ArgumentParser()
 p.add_argument("--run-dir", required=True)
@@ -33,5 +33,6 @@ keys = ["dataset", "model", "example_id"]
 ck = df.groupby(keys, sort=True).apply(_checkpoint_row, include_groups=False).reset_index()
 ck.insert(3, "cot_id", -1)
 ck.insert(4, "fraction", 0.0)
+ck = add_norm_entropy(ck, run / "raw" / "examples.csv")
 ck.to_csv(out, index=False)
 print(f"wrote {out} ({len(ck)} rows)")

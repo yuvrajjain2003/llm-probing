@@ -48,6 +48,9 @@ DOWNLOADS: dict[str, dict] = {
     "gpqa_diamond": dict(
         hf_name="Idavidrein/gpqa", hf_config="gpqa_diamond", filter_fn=None,
     ),
+    "global_opinions": dict(
+        hf_name="Anthropic/llm_global_opinions", hf_config=None, filter_fn=None,
+    ),
 }
 
 

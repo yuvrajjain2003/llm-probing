@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd  # noqa: E402
 
 from generation.run_eval import (  # noqa: E402
-    DATASETS, build_example_metrics, grade, parse_output,
+    DATASETS, _ANSWER_LINE_RE, build_example_metrics, grade, parse_output,
 )
 
 
@@ -64,7 +64,7 @@ def _reparse_base(run_dir: Path, *, dry_run: bool, backup: bool) -> None:
     n_fixed = n_broke = 0
     out = []
     for r in rows:
-        parsed = parse_output(r["raw_completion"])
+        parsed = parse_output(r["raw_completion"], cfg.get("answer_line_re", _ANSWER_LINE_RE))
         pred_norm, _, is_correct = grade(cfg, parsed["final_answer"], r["gold_answer"])
         n_fixed += bool(parsed["parse_success"]) and not bool(r["parse_success"])
         n_broke += bool(r["parse_success"]) and not bool(parsed["parse_success"])
@@ -151,7 +151,7 @@ def main() -> None:
         key = (r["example_id"], r["cot_id"], r["fraction"])
         if key not in prefix:
             sys.exit(f"no checkpoint for {key} -- checkpoints.jsonl does not match")
-        parsed = parse_output(prefix[key] + r["continuation_text"])
+        parsed = parse_output(prefix[key] + r["continuation_text"], cfg.get("answer_line_re", _ANSWER_LINE_RE))
         pred_norm, _, is_correct = grade(cfg, parsed["final_answer"], r["gold_answer"])
 
         was_ok, now_ok = bool(r["parse_success"]), bool(parsed["parse_success"])

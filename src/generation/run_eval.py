@@ -26,6 +26,7 @@ os.environ.setdefault("XDG_CONFIG_HOME",         f"{_CACHE}/config")
 os.environ.setdefault("VLLM_NO_USAGE_STATS",     "1")
 
 import argparse
+import ast
 import json
 import math
 import random
@@ -118,6 +119,10 @@ _ANSWER_LINE_RE = re.compile(r"^\s*\**\s*answer\s*\**\s*:\s*\**\s*([A-E])\b",
 _NUMERIC_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _LETTER_RE  = re.compile(r"\b([A-Ja-j])\b")
 _BOXED_START_RE = re.compile(r"\\boxed\{")
+# GlobalOpinionQA: up to 18 options (A-R).
+_OPINION_LETTER_RE = re.compile(r"^\W*([A-Ra-r])\s*(?:$|[).:\]])")
+_OPINION_ANSWER_LINE_RE = re.compile(r"^\s*\**\s*answer\s*\**\s*:\s*\**\s*([A-R])\b",
+                                     flags=re.IGNORECASE | re.MULTILINE)
 
 
 def _clean_reasoning(text: str) -> str:
@@ -157,7 +162,7 @@ def _latex_literal(quoted_value: str) -> str:
     return quoted_value.strip().strip('"').replace('\\"', '"')
 
 
-def parse_output(raw: str) -> dict[str, Any]:
+def parse_output(raw: str, answer_line_re: re.Pattern = _ANSWER_LINE_RE) -> dict[str, Any]:
     raw = raw or ""
     matches = list(_FINAL_ANSWER_RE.finditer(raw))
     if matches:
@@ -210,7 +215,7 @@ def parse_output(raw: str) -> dict[str, Any]:
     # strictly converts would-be failures into answers. The letter is unambiguous, and
     # without this ~36% of GPQA's continuations were discarded over punctuation alone.
     # Marked distinctly so the parser-failure catalog still counts how often it fires.
-    ans = list(_ANSWER_LINE_RE.finditer(raw))
+    ans = list(answer_line_re.finditer(raw))
     if ans:
         m = ans[-1]
         return dict(reasoning=_clean_reasoning(raw[: m.start()]),
@@ -285,6 +290,12 @@ def grade(cfg: dict, pred_text: Any, gold_text: Any) -> tuple[str | None, str | 
     function existed. "math_verify" (MATH-500) uses symbolic equivalence for
     is_correct instead, since answers are LaTeX expressions, not bare numbers.
     """
+    if cfg.get("grading") == "opinion":
+        # No gold answer: only the chosen letter matters. Accept a bare letter
+        # ("B", "(B)", "B) text", "B."); anything else is a parse failure rather than
+        # normalize_mc's first-letter guess, which would invent answers.
+        m = _OPINION_LETTER_RE.match(str(pred_text)) if pred_text is not None else None
+        return (m.group(1).upper() if m else None), None, False
     if cfg.get("grading") == "math_verify":
         return (_normalize_math(pred_text), _normalize_math(gold_text),
                 _is_correct_math(pred_text, gold_text))
@@ -295,6 +306,20 @@ def grade(cfg: dict, pred_text: Any, gold_text: Any) -> tuple[str | None, str | 
 
 
 # ── Dataset registry ──────────────────────────────────────────────────────────
+
+_OPINION_PREFACE = ("This is a survey question about your own opinion. There is no "
+                    "correct answer. Choose the option that best matches your view.\n\n")
+
+
+def _opinion_options(ex: dict) -> list:
+    # Stored as a Python-literal string; some options are floats (0.0 .. 10.0).
+    opts = ast.literal_eval(ex["options"]) if isinstance(ex["options"], str) else ex["options"]
+    return [int(o) if isinstance(o, float) and o.is_integer() else o for o in opts]
+
+
+def _opinion_choices(ex: dict) -> list[str]:
+    return [f"{chr(65 + i)}) {o}" for i, o in enumerate(_opinion_options(ex))]
+
 
 _GSM8K_ANS_RE = re.compile(r"####\s*(.+)")
 
@@ -440,6 +465,20 @@ DATASETS: dict[str, dict] = {
         gold=_gpqa_gold,
         choices=_gpqa_choices,
         filter_fn=None,
+    ),
+    # Subjective survey questions (Pew Global Attitudes + World Values Survey), 2-18
+    # options incl. "DK/Refused" where the survey had it. No gold answer. The opinion
+    # preface is part of the question text so every prompt renderer (generation,
+    # continuations, activation extraction) sees the same prompt.
+    "global_opinions": dict(
+        hf_name="Anthropic/llm_global_opinions", hf_config=None, split="train", is_mc=True,
+        question=lambda ex: _OPINION_PREFACE + ex["question"],
+        gold=lambda ex: "",
+        choices=_opinion_choices,
+        filter_fn=None,
+        grading="opinion",
+        answer_line_re=_OPINION_ANSWER_LINE_RE,
+        meta=lambda ex: {"source": ex["source"], "n_options": len(_opinion_options(ex))},
     ),
 }
 
@@ -626,7 +665,7 @@ def run_eval(args: argparse.Namespace) -> None:
         for w, out in zip(chunk, outputs):  # vLLM sorts outputs by request_id (input order)
             row = w["row"]
             raw = out.outputs[0].text
-            parsed = parse_output(raw)
+            parsed = parse_output(raw, cfg.get("answer_line_re", _ANSWER_LINE_RE))
             pred_norm, _, is_correct = grade(cfg, parsed["final_answer"], row["gold_answer"])
             records.append(dict(
                 dataset=args.dataset,

@@ -154,6 +154,22 @@ def _commitment(ck: pd.DataFrame) -> pd.Series:
     ))
 
 
+def add_norm_entropy(ck: pd.DataFrame, examples_csv: Path) -> pd.DataFrame:
+    """Entropy divided by log2(number of options), so questions with different
+    option counts are on one 0-1 scale (Miller-Madow can exceed 1 slightly).
+    NaN for free-form datasets or when examples.csv is missing."""
+    n_opt = {}
+    if examples_csv.exists():
+        ex = pd.read_csv(examples_csv)
+        n_opt = {int(e): len(json.loads(c)) for e, c in zip(ex["example_id"], ex["choices"])
+                 if isinstance(c, str)}
+    ck["n_options"] = ck["example_id"].map(n_opt).astype(float)
+    denom = np.log2(ck["n_options"].where(ck["n_options"] > 1))
+    ck["answer_entropy_bits_norm"] = ck["answer_entropy_bits"] / denom
+    ck["answer_entropy_bits_mm_norm"] = ck["answer_entropy_bits_mm"] / denom
+    return ck
+
+
 def build_labels(cont_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = _load_jsonl(cont_path)
     if df.empty:
@@ -185,6 +201,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ck, commit = build_labels(cont_path)
+    ck = add_norm_entropy(ck, cont_path.parent / "examples.csv")
     for name, tbl in [("checkpoint_labels", ck), ("commitment", commit)]:
         tbl.to_csv(out_dir / f"{name}.csv", index=False)
         try:

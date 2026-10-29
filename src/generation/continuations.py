@@ -42,6 +42,7 @@ from generation.checkpoint import DEFAULT_FRACTIONS, extract_cot, make_checkpoin
 # ~/.cache location instead of the repo's writable cache dir.
 from generation.run_eval import (
     DATASETS,
+    _ANSWER_LINE_RE,
     _append_jsonl,
     _load_jsonl,
     grade,
@@ -300,7 +301,7 @@ def run(args: argparse.Namespace) -> None:
         for (w, _n, off), out in zip(subreqs, outputs):
             for j, comp in enumerate(out.outputs):
                 cont = comp.text
-                parsed = parse_output(w["prefix_text"] + cont)
+                parsed = parse_output(w["prefix_text"] + cont, cfg.get("answer_line_re", _ANSWER_LINE_RE))
                 pred_norm, _, is_correct = grade(cfg, parsed["final_answer"], w["gold_answer"])
                 records.append(dict(
                     dataset=dataset, model=args.model,
