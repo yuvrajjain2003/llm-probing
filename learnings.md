@@ -393,3 +393,19 @@ Also: several sessions genuinely do work here at once. On 2026-11-01 the working
 session's round-6 analysis, three earlier sessions' uncommitted work, and a fourth session's GEPA prep
 owned by `rishp`. `CLAUDE.md`'s "Not committed yet" is now grouped by owner for that reason. Do not
 commit another session's files without asking.
+
+## 2026-11-01 - RESOLVED: git push works from the `yuvraj` account now
+
+The repeated "git fetch/push fails as yuvraj (Permission denied (publickey))" entries above are
+**obsolete**. The cause was simply that this box's key had never been registered with GitHub: the
+account has one key, `~/.ssh/id_rsa`, whose public half was only in `~/.ssh/authorized_keys` for
+Sycamore logins. Adding that public key at github.com/settings/keys fixed it in one step
+(`ssh -T git@github.com` then greets `Hi yuvrajjain2003!`).
+
+The consequence worth keeping: before this, `git log HEAD..origin/main` printed nothing and looked
+like "up to date" while actually comparing against a stale local ref. That trap is gone now that
+fetch succeeds, but the general lesson stands - if fetch is failing, a quiet `HEAD..origin/main` means
+nothing.
+
+Note the key is shared between Sycamore login and GitHub. Untidy but not dangerous; a dedicated
+GitHub-only key would be cleaner if anyone wants to separate them.

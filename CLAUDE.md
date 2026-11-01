@@ -391,26 +391,19 @@ way, until step 4 settles what we are trying to show (it is weeks of GPU).
 - `docs/HANDOFF.md` is **stale**: its open item 1 (unrelated-LLM control) was done in round 3 by OLMo-3
   and Mistral, and it predates rounds 4-5 entirely. Fix when next editing it.
 
-**Not committed yet (checked 2026-11-01).** Local HEAD is `fe985b1`. **`git fetch` FAILS as user
-`yuvraj`** ("Please make sure you have the correct access rights") for want of a GitHub SSH key on this
-account, so the `origin/main` ref here is stale and "up to date" cannot be trusted - another session or
-yuvraj may have pushed. Re-check from an account that can fetch before any commit.
+**Everything is committed and pushed (2026-11-01).** `origin/main` is `f70bda7`. Rounds 4, 5 and 6, the
+GEPA prep and all project docs went up in seven commits (`bead7c1`..`f70bda7`), authored
+`Yuvraj <yuvrajjain2003@gmail.com>`. The working tree is clean.
 
-Uncommitted, by owner:
-- **This session's round-6 work:** `src/analysis/icl_{decompose,bands,bands_refit,bands_spread}.py`,
-  `src/viz/round6_figures.py`, `docs/update_2026-10-29.md`, `docs/figures/slides/fig{9,10,11,12}_*.png`,
-  edits to `src/viz/slide_figures.py` (fig7 rebuilt).
-- **Earlier sessions', still uncommitted:** `NEXT_STEPS.md`, `RESEARCH.md`, `Yuvraj.md`, `docs/HANDOFF.md`,
-  `learnings.md`, `docs/update_2026-10-2[37].md`, `docs/briefing_2026-10-27.md`,
-  `docs/meeting_2026-10-27.md`, `docs/deck_2026-10-27/`, `docs/plan_*.md`,
-  `docs/figures/{redundancy,mlpgap}/`, `configs/sweep_ref_logistic_deep.yaml`,
-  `src/analysis/redundancy*.py`, `src/probing/mlpgap_*.py`,
-  `src/viz/{master_table,icl_table,slide_figures}.py`, edits to `src/baselines/icl_{openai,predict}.py`.
-- **Another session's (2026-10-31, `rishp`):** `src/baselines/gepa_luna.py`, `runs/gepa/`.
-- **Junk, deletable on the user's say:** `temp.txt` (empty), two `tmux-*.log` files (~19 MB, owned by
-  `rishp`).
+**`git fetch` and `git push` now WORK from the `yuvraj` account.** The box's existing SSH key
+(`~/.ssh/id_rsa`, the Sycamore login key) was added to the `yuvrajjain2003` GitHub account on
+2026-11-01, which fixed the long-standing "Permission denied (publickey)" noted in `learnings.md`.
+So `git log HEAD..origin/main` can be trusted again after a fetch.
 
-Commit/push only when the user says, and **do not commit other sessions' files without asking**.
+`temp.txt` and the `tmux-*.log` files are now gitignored and left on disk.
+
+Commit/push only when the user says, and **do not commit other sessions' files without asking** (the
+2026-11-01 push included another session's GEPA prep at the user's explicit request).
 
 - Several Claude sessions may work in this repo at once: use a distinct output folder per experiment,
   and don't commit other sessions' files without the user's say.
