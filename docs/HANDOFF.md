@@ -52,13 +52,8 @@ Read in this order:
 - **yuvraj:** never write into `runs/goal2/gpqa25/{probes_ckpt,ablation}`. Before any commit, `git fetch` and check `git log HEAD..origin/main`. Never force-push. Push only when the user explicitly asks.
 - **Staggering:** stagger job submissions by ~1 min (simultaneous starts hit an sqlite cache error; see `learnings.md`).
 
-## Git state (2026-10-15)
-- Last push: `56e71b0` (2026-10-12) = origin/main.
-- **Not yet committed:**
-  - `docs/update_2026-10-12.md`, `src/viz/update_1012_figures.py`, `docs/figures/round2/fig{6,7,8}_*.png` (round-2 write-up);
-  - `CLAUDE.md` edits;
-  - `#SBATCH --output` lines in 18 `runs/gpqa25/*.sh`;
-  - this file.
+## Git state (2026-10-21)
+- Last push: `6637937` (2026-10-21, round 3) = origin/main. Everything except the tmux logs was committed.
 - `tmux-client-*.log` / `tmux-server-*.log` in the repo root are tmux debug logs, not project files. Don't commit them.
 - The round-2 update is also a Claude doc: https://claude.ai/code/artifact/79a0ea60-86f7-46eb-b484-ab12cb218c14. It still has the old sentence "raw R² is < 0 for every setup"; the local markdown is corrected.
 

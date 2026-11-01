@@ -79,3 +79,9 @@ core.[0-9]*
 
 # ── Local-only Claude settings (shared context in .claude/ IS tracked) ────────
 .claude/settings.local.json
+
+# ── Scratch files in the repo root ───────────────────────────────────────────
+# temp.txt once briefly held an API key (now 0 bytes); tmux logs are ~21 MB of
+# terminal capture. Kept on disk, never committed.
+/temp.txt
+/tmux-*.log
