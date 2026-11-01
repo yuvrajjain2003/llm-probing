@@ -1,0 +1,19 @@
+<section id="lora" style="display:flex; flex-direction:column; gap:36px; padding:128px; background:#ffffff">
+  <p style="font-family:Arial, sans-serif; font-size:30px; color:#666666">Ask 7</p>
+  <h2 style="font-family:Arial, sans-serif; font-size:58px; font-weight:600; line-height:1.15; color:#111111">Is LoRA working?</h2>
+  <ul style="font-family:Arial, sans-serif; font-size:32px; line-height:1.5; color:#111111">
+    <li>Yes. LoRA's own prediction head was worse than ridge, but that was the head's training recipe, not LoRA</li>
+    <li>Ridge on the LoRA-adapted states beats ridge on the stored states, by a little</li>
+  </ul>
+  <table style="font-family:Arial, sans-serif; font-size:28px; color:#111111">
+    <tr><th style="padding:9px 20px; font-weight:600"></th><th style="padding:9px 20px; font-weight:600">answer entropy</th><th style="padding:9px 20px; font-weight:600"></th><th style="padding:9px 20px; font-weight:600"></th><th style="padding:9px 20px; font-weight:600">remaining len</th><th style="padding:9px 20px; font-weight:600"></th><th style="padding:9px 20px; font-weight:600"></th></tr>
+    <tr><td style="padding:9px 20px; color:#666666">cut point</td><td style="padding:9px 20px; color:#666666">LoRA</td><td style="padding:9px 20px; color:#666666">stored</td><td style="padding:9px 20px; color:#666666">diff</td><td style="padding:9px 20px; color:#666666">LoRA</td><td style="padding:9px 20px; color:#666666">stored</td><td style="padding:9px 20px; color:#666666">diff</td></tr>
+    <tr><td style="padding:9px 20px">10%</td><td style="padding:9px 20px">0.281</td><td style="padding:9px 20px">0.278</td><td style="padding:9px 20px; color:#666666">+0.003 n.s.</td><td style="padding:9px 20px">0.635</td><td style="padding:9px 20px">0.626</td><td style="padding:9px 20px">+0.009</td></tr>
+    <tr><td style="padding:9px 20px">30%</td><td style="padding:9px 20px">0.307</td><td style="padding:9px 20px">0.295</td><td style="padding:9px 20px">+0.012</td><td style="padding:9px 20px">0.603</td><td style="padding:9px 20px">0.587</td><td style="padding:9px 20px">+0.016</td></tr>
+    <tr><td style="padding:9px 20px">50%</td><td style="padding:9px 20px">0.309</td><td style="padding:9px 20px">0.298</td><td style="padding:9px 20px">+0.012</td><td style="padding:9px 20px">0.574</td><td style="padding:9px 20px">0.548</td><td style="padding:9px 20px">+0.026</td></tr>
+    <tr><td style="padding:9px 20px">70%</td><td style="padding:9px 20px">0.312</td><td style="padding:9px 20px">0.302</td><td style="padding:9px 20px">+0.009</td><td style="padding:9px 20px">0.503</td><td style="padding:9px 20px">0.484</td><td style="padding:9px 20px">+0.019</td></tr>
+    <tr><td style="padding:9px 20px">90%</td><td style="padding:9px 20px">0.291</td><td style="padding:9px 20px">0.270</td><td style="padding:9px 20px">+0.021</td><td style="padding:9px 20px">0.399</td><td style="padding:9px 20px">0.375</td><td style="padding:9px 20px">+0.024</td></tr>
+  </table>
+  <p style="font-family:Arial, sans-serif; font-size:28px; color:#666666">All R2. Every difference significant except entropy at 10%. 12 GPU-hours total.</p>
+  <aside>We checked this carefully because the first answer looked bad. Training a head on the frozen states with the same recipe reproduced the deficit, which showed the head was the problem, not LoRA. The gains are real and significant but small: one to two points of R2, largest at the 90% cut.</aside>
+</section>

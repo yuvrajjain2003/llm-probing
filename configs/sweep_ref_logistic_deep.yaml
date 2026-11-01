@@ -1,0 +1,24 @@
+# Deeper logistic C grid for committed_by_here.
+# Why: the ref_fixed grid (C 1e-4..10) picks C=1e-4 -- its BOTTOM EDGE -- in 18 of 25 folds for act_L21
+# (all 5 folds at both the 10% and 90% checkpoints), so the published 0.741 accuracy comes from
+# edge-pinned fits. This goes down to 1e-8 so the optimum must be interior.
+# The probe NAME is new (`logistic_deep`): sweep.py skips combos by (feature, probe name, fraction,
+# target), so reusing `logistic` would keep the old rows.
+act_dir: runs/goal2/gpqa25/activations_ckpt/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/ref_logistic_deep
+folds: 5
+fixed_folds: true
+fold_seed: 0
+targets: [committed_by_here]
+
+features:
+  act_L21:    {type: act, layers: [21]}
+  prefix_len: {type: prefix_len}
+  tfidf:      {type: tfidf}
+
+probes:
+  logistic_deep: {class: logistic, grid: {C: {logspace: [-8, 1, 10]}}}
+
+runs:
+  - {features: [act_L21, prefix_len, tfidf], probes: [logistic_deep]}

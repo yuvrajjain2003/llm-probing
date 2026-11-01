@@ -1,0 +1,13 @@
+<section id="smaller" data-section="What we did since, answering the ten asks." style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:24px">
+<p style="font-size:30px;color:#666666">Ask 1: in-context with a smaller prompt</p>
+<h2 style="font-size:52px;font-weight:600;line-height:1.15">Shorter prompts, more examples</h2>
+<ul style="font-size:30px;line-height:1.45">
+<li>Examples cut to their last 2 sentences, 8.5% of the length. Question kept in full</li>
+<li>Lets us fit 400 examples instead of 93</li>
+<li><b>Shorter does score higher at the same k</b>, in 5 of 6 cells: entropy and remaining length at k = 10, 30, 93</li>
+<li>Only one is significant on its own, so treat it as suggestive</li>
+<li>But still below using no examples at all, and 400 is the worst setting</li>
+</ul>
+<img src="/_blob/dd61d4ddc128f4de0c3a2f452309bf47" alt="Two panels, entropy and remaining length, against number of examples. Shortened examples sit above full examples in both, and both sit below the no-examples line" style="width:1280px;height:476px;object-fit:contain">
+<aside>Worth being straight about this: shortening does help a little, and I had it wrong earlier. What it does not do is change the conclusion. Every setting with examples is below the setting with none.</aside>
+</section>

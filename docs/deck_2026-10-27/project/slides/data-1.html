@@ -1,0 +1,12 @@
+<section id="data-1" data-section="Two things we looked into ourselves." style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">Is our training data too similar?</h2>
+<ul style="font-size:38px;line-height:1.6">
+<li>25 chains per question. Are they near-duplicates?</li>
+<li>Two checks say no</li>
+<li>Chains of one question separate at AUC 0.80, not 1.00</li>
+<li>Score still climbing at 25 chains, no plateau</li>
+<li>1 chain to 25: entropy 0.15 to 0.30, length 0.38 to 0.55</li>
+<li>So the data is not the thing holding us back</li>
+</ul>
+<aside>This was the worry: that a question's 25 chains are so alike the probe has nothing to learn from. Two independent checks say no.</aside>
+</section>

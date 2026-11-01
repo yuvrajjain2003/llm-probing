@@ -1,0 +1,17 @@
+<section id="approaches" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:40px">
+<p style="font-size:30px;color:#666666">Asks 5, 6 and 9: different family, random forest grid, embeddings</p>
+<h2 style="font-size:58px;font-weight:600;line-height:1.15">How strong a baseline can we find?</h2>
+<ul style="font-size:31px;line-height:1.5">
+<li>Our probe, plus the two text baselines: word counts and prefix length</li>
+<li>4 other models: Qwen2.5-Instruct, Qwen2.5-Math, OLMo-3-7B, Mistral-7B</li>
+<li>5 sentence embedders: Qwen3-Embedding-8B, F2LLM-v2-8B, UltraBERT, BGE-M3, Granite</li>
+<li>7 probe types: two MLP sizes, two random forests, gradient boosting, two PCA variants</li>
+<li>3 layer choices: layer 14, layers 13 to 15, layers 20 to 22</li>
+</ul>
+<ul style="font-size:34px;line-height:1.55">
+<li>All 22 on the same rows, same folds, same error bars</li>
+<li><b>Strongest baseline: another model's activations.</b> OLMo-3 ties us on all five</li>
+<li>OLMo-3 and Mistral share no lineage with our model. Embedders and text are far behind</li>
+</ul>
+<aside>This is the real answer to "what is a strong baseline". Not the text baselines: another language model reading the same text. Two of the four are Qwen relatives, but OLMo-3 and Mistral are unrelated, and OLMo-3 still ties us. That is the uncomfortable part, and it connects to the last result in the deck.</aside>
+</section>

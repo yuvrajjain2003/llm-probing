@@ -1,0 +1,10 @@
+<section id="linear-1" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">Why is a linear probe still best?</h2>
+<ul style="font-size:36px;line-height:1.6">
+<li>The old answer, "MLPs never win", was our training code, not MLPs</li>
+<li>Our optimiser was missing the linear solution it should have matched</li>
+<li>Fixed it, then checked with kernel ridge: closed form, no optimiser</li>
+<li>So the ceiling we now quote is a property of the data</li>
+</ul>
+<aside>This matters because the old claim was an artefact. We found our own bug and fixed it before claiming anything.</aside>
+</section>

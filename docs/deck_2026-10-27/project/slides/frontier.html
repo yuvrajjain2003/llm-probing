@@ -1,0 +1,12 @@
+<section id="frontier" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:24px">
+<p style="font-size:30px;color:#666666">Ask 2: frontier model</p>
+<h2 style="font-size:52px;font-weight:600;line-height:1.15">Frontier model in context</h2>
+<ul style="font-size:30px;line-height:1.45">
+<li>GPT-6 Luna: 9,424 calls, $18, zero parse failures</li>
+<li>Ties us on entropy (0.294 vs our 0.309), P(mode), commitment</li>
+<li>Loses on remaining length (0.455 vs 0.563) and length spread</li>
+<li>Zero-shot is its best setting. Examples make it worse, and collapse length</li>
+</ul>
+<img src="/_blob/12b1bc2c1d2772f6bbe743046b462514" alt="Entropy and remaining length against number of examples, both falling as examples are added, and the best setting minus our probe across all five targets" style="width:1664px;height:467px;object-fit:contain">
+<aside>Gemma does the same thing locally, so the pattern holds across two unrelated model families.</aside>
+</section>

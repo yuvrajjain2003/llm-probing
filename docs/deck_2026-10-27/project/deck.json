@@ -1,0 +1,34 @@
+{
+  "v": 4,
+  "createdOnFiles": { "v": 1, "at": "2026-10-26T20:30:00Z" },
+  "lists": "css",
+  "title": "CoT probing — meeting update",
+  "order": [
+    "cover",
+    "question",
+    "where-we-left",
+    "actions",
+    "status",
+    "smaller",
+    "frontier",
+    "hiding",
+    "approaches",
+    "approaches-fig",
+    "lora",
+    "data-1",
+    "data-2",
+    "data-fig",
+    "linear-1",
+    "linear-2",
+    "reading",
+    "asks"
+  ],
+  "sections": {
+    "recap": { "description": "What we already discussed last time.", "start": "cover" },
+    "did": { "description": "What we did since, answering the ten asks.", "start": "status" },
+    "ours": { "description": "Two things we looked into ourselves.", "start": "data-1" },
+    "next": { "description": "What we need decided.", "start": "reading" }
+  },
+  "faces": {},
+  "designSystems": []
+}

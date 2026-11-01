@@ -1,0 +1,12 @@
+<section id="hiding" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<p style="font-size:30px;color:#666666">Ask 3: remove checkpoint location</p>
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">Hiding how far along we are</h2>
+<ul style="font-size:38px;line-height:1.6">
+<li>Checkpoint hidden on the examples and the query</li>
+<li>Entropy, P(mode), commitment: no change</li>
+<li>Remaining length: R2 falls by 0.12, 0.24, 0.17 at k = 0, 10, 50</li>
+<li>So it uses depth where depth matters</li>
+<li>A good sign the setup is working</li>
+</ul>
+<aside>Worth saying: the earlier version only hid it on the examples. This hides it everywhere. The length result is what you would hope for: the model is reading the label when the label is informative.</aside>
+</section>

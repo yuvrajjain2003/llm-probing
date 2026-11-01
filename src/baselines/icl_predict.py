@@ -53,6 +53,8 @@ A small reasoning model was given a GPQA-Diamond question and began writing a st
 - committed: 1 if, at this checkpoint and every later one (10%, 30%, 50%, 70%, 90%), the most common answer is the same and at least 80% of continuations give it; otherwise 0 (always 0 at checkpoint 0%).
 """
 INSTR_EX = "Labelled examples follow, then one query item. "
+INSTR_SHORT = ("In the examples the reasoning is shortened to its last few sentences, marked [...], "
+               "while the question and choices are complete; the query item is complete throughout. ")
 INSTR_END = ("Reply with one JSON object and nothing else, with exactly these keys and numeric values: "
              + ", ".join(JSON_KEYS) + ".")
 INSTR_QUERY = ("Predict the measured values for the QUERY item above. Do not solve the question itself. "
@@ -77,6 +79,7 @@ def load_data() -> pd.DataFrame:
     d.loc[d.fraction == 0, "committed_by_here"] = np.nan      # not scored at 0%
     d = d.dropna(subset=["answer_entropy_bits_mm", "p_mode", "rem_len_mean", "rem_len_std"])   # 9 rows, no valid continuation
     d["fold"] = d.example_id.map(fixed_fold_of(RUN_DIR, 5, 0))
+    QBLOCK.update({int(r.example_id): r.text for r in d[d.fraction == 0].itertuples()})
     return d.sort_values(KEYS).reset_index(drop=True)
 
 
@@ -86,8 +89,24 @@ def label_json(r) -> str:
                        "rem_len_std": int(round(r.rem_len_std)), "committed": int(r.label_commit)})
 
 
-def item(r) -> str:
-    return f"[checkpoint {int(round(r.fraction * 100))}%]\n{r.text}"
+QBLOCK: dict[int, str] = {}      # example_id -> the question + choices block (the 0% row's text)
+
+
+def item(r, max_sents: int = 0) -> str:
+    """max_sents > 0 shortens the REASONING to its last max_sents sentences, keeping the question and
+    choices in full (the checkpoint is at the reasoning's end, so the tail is what matters). Used for
+    the examples only, never the query. Checked 2026-10-26: the 0% row's text is an exact prefix of
+    every other row of that question, 24,566/24,566."""
+    text = r.text
+    if max_sents:
+        q = QBLOCK.get(int(r.example_id), "")
+        assert text.startswith(q), int(r.example_id)
+        chain = text[len(q):]
+        from generation.checkpoint import split_sentences      # exact round trip: "".join(...) == chain
+        sents = split_sentences(chain)
+        if len(sents) > max_sents:
+            text = q + "[...] " + "".join(sents[-max_sents:]).lstrip()
+    return f"[checkpoint {int(round(r.fraction * 100))}%]\n{text}"
 
 
 def example_order(d: pd.DataFrame, fold: int, n: int, seed: int = 1000) -> list[int]:
@@ -118,11 +137,12 @@ def test_rows(d: pd.DataFrame, n_cot: int, seed: int = 7) -> pd.DataFrame:
     return d[[c in keep[q] for q, c in zip(d.example_id, d.cot_id)]]
 
 
-def build_text(tok, cfg, d, ex_idx, row, thinking: bool) -> str:
-    body = INSTR + (INSTR_EX if ex_idx else "") + INSTR_END
+def build_text(tok, cfg, d, ex_idx, row, thinking: bool, ex_sents: int = 0) -> str:
+    body = INSTR + ((INSTR_EX + (INSTR_SHORT if ex_sents else "")) if ex_idx else "") + INSTR_END
     parts = [body]
     for i, j in enumerate(ex_idx, 1):
-        parts.append(f"=== EXAMPLE {i} ===\n{item(d.iloc[j])}\n=== MEASURED VALUES ===\n{label_json(d.iloc[j])}")
+        parts.append(f"=== EXAMPLE {i} ===\n{item(d.iloc[j], ex_sents)}\n"
+                     f"=== MEASURED VALUES ===\n{label_json(d.iloc[j])}")
     parts.append(f"=== QUERY ===\n{item(row)}\n\n{INSTR_QUERY}\n=== MEASURED VALUES (JSON only) ===")
     s = tok.apply_chat_template([{"role": "user", "content": "\n\n".join(parts)}], tokenize=False,
                                 add_generation_prompt=True, enable_thinking=thinking)
@@ -193,8 +213,9 @@ def cmd_dry(a):
           "| distinct questions:", d.iloc[ex].example_id.nunique())
     T = test_rows(d, a.subsample_cots); T = T[T.fold == f]
     assert not set(T.example_id) & set(d.iloc[ex].example_id)
-    lens = [len(encode(tok, build_text(tok, cfg, d, ex, r, a.thinking == "on"))) for r in T.head(a.n_dry).itertuples()]
-    s = build_text(tok, cfg, d, ex, T.iloc[0], a.thinking == "on")
+    lens = [len(encode(tok, build_text(tok, cfg, d, ex, r, a.thinking == "on", a.ex_sents)))
+            for r in T.head(a.n_dry).itertuples()]
+    s = build_text(tok, cfg, d, ex, T.iloc[0], a.thinking == "on", a.ex_sents)
     print(f"fold {f} k={a.k}: {len(T)} test rows; first {len(lens)} prompts: tokens min {min(lens)} max {max(lens)}")
     print("---- prompt (head / tail) ----\n" + s[:2500] + "\n  [...]\n" + s[-900:] + "\n---- end ----")
 
@@ -210,7 +231,8 @@ def cmd_run(a):
     d = load_data(); T = test_rows(d, a.subsample_cots)
     if a.max_rows:
         T = T.head(a.max_rows)
-    tags = {k: f"{a.model}{'_yarn' if a.yarn else ''}_{a.thinking}_k{k}{'_smoke' if a.max_rows else ''}" for k in a.k}
+    tags = {k: f"{a.model}{'_yarn' if a.yarn else ''}_{a.thinking}"
+               f"{f'_s{a.ex_sents}' if a.ex_sents else ''}_k{k}{'_smoke' if a.max_rows else ''}" for k in a.k}
     out = OUT / "raw"; out.mkdir(parents=True, exist_ok=True)
     todo = [(k, f) for k in a.k for f in range(5) if not (out / f"{tags[k]}_fold{f}.csv").exists() and (T.fold == f).any()]
     if not todo:
@@ -228,7 +250,8 @@ def cmd_run(a):
     for f in sorted({f for _, f in todo}):                  # fold-major: a fold's examples stay cached across its k values
         for k in [k for k, ff in todo if ff == f]:
             ex = example_order(d, f, k); Tf = T[T.fold == f]
-            prompts = [TokensPrompt(prompt_token_ids=encode(tok, build_text(tok, cfg, d, ex, r, a.thinking == "on")))
+            prompts = [TokensPrompt(prompt_token_ids=encode(tok, build_text(
+                           tok, cfg, d, ex, r, a.thinking == "on", a.ex_sents)))
                        for r in Tf.itertuples()]
             assert max(len(p["prompt_token_ids"]) for p in prompts) + ANSWER_BUDGET <= ctx
             t0 = time.time()
@@ -265,7 +288,8 @@ def parse(text: str):
 
 
 def cmd_score(a):
-    tag = f"{a.model}{'_yarn' if a.yarn else ''}_{a.thinking}_k{a.k}"
+    tag = (f"{a.model}{'_yarn' if a.yarn else ''}_{a.thinking}"
+           f"{f'_s{a.ex_sents}' if getattr(a, 'ex_sents', 0) else ''}_k{a.k}")
     d = load_data()[KEYS + ["fold"] + TARGETS]
     R = pd.concat([pd.read_csv(f) for f in sorted((OUT / "raw").glob(f"{tag}_fold?.csv"))], ignore_index=True)
     R["fraction"] = R.fraction.round(6)
@@ -311,6 +335,8 @@ if __name__ == "__main__":
     p.add_argument("--max-num-seqs", type=int, default=16)
     p.add_argument("--max-rows", type=int, default=0)
     p.add_argument("--n-dry", type=int, default=200)
+    p.add_argument("--ex-sents", type=int, default=0,
+                   help="shorten each EXAMPLE prefix to its last N sentences (0 = full); query untouched")
     a = p.parse_args()
     if a.cmd != "run":
         a.k = a.k[0]

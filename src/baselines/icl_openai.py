@@ -3,11 +3,14 @@
 subset of its test rows (20 per checkpoint 10..90%, 4 per fold). Two versions:
   ckpt   : as icl_predict.py (every item shows "[checkpoint N%]")
   nockpt : the examples hide their checkpoint; the query still shows it
+  blind  : no item shows its checkpoint (examples or query) -- the prof's "remove checkpoint location"
 Answers are forced JSON (structured outputs). Resumable: one JSON line per finished call in raw/<tag>.jsonl.
 Key read from ~/.frontier_api_key (never printed).
 
     $PY src/baselines/icl_openai.py run   --k 10 50 100 --version ckpt nockpt
     $PY src/baselines/icl_openai.py score --k 10 50 100 --version ckpt nockpt
+    --full runs all of icl_predict's test rows (1 CoT/question incl. the 0% rows, ~1,188) instead of
+    the 100-row subset, so the scores are directly comparable to the local-model ICL runs.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ NAME, PRICE = "gpt6_" + MODEL.split("-")[-1], PRICES[MODEL]   # gpt6_astra
 NOCKPT_OLD = ", and the checkpoint (how far into the full chain the prefix ends)."
 NOCKPT_NEW = (". The labelled examples do not show their checkpoint; the query item shows its checkpoint "
               "(how far into the full chain the prefix ends).")
+BLIND_NEW = ". No item shows its checkpoint."
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ip.JSON_KEYS,
           "properties": {k: {"type": "integer" if k == "committed" else "number"} for k in ip.JSON_KEYS}}
 
@@ -106,15 +110,21 @@ def subset10(d: pd.DataFrame) -> pd.DataFrame:
 
 def prompt(d, ex, row, version: str) -> tuple[str, str]:
     instr = ip.INSTR
-    if version == "nockpt":
-        assert NOCKPT_OLD in instr; instr = instr.replace(NOCKPT_OLD, NOCKPT_NEW)
+    if version in ("nockpt", "blind"):
+        assert NOCKPT_OLD in instr
+        instr = instr.replace(NOCKPT_OLD, NOCKPT_NEW if version == "nockpt" else BLIND_NEW)
     parts = [instr + (ip.INSTR_EX if ex else "") + ip.INSTR_END]
     for i, j in enumerate(ex, 1):
         r = d.iloc[j]
-        parts.append(f"=== EXAMPLE {i} ===\n{r.text if version == 'nockpt' else ip.item(r)}\n"
+        parts.append(f"=== EXAMPLE {i} ===\n{r.text if version in ('nockpt', 'blind') else ip.item(r)}\n"
                      f"=== MEASURED VALUES ===\n{ip.label_json(r)}")
-    query = f"=== QUERY ===\n{ip.item(row)}\n\n{ip.INSTR_QUERY}\n=== MEASURED VALUES (JSON only) ==="
+    q_item = row.text if version == "blind" else ip.item(row)
+    query = f"=== QUERY ===\n{q_item}\n\n{ip.INSTR_QUERY}\n=== MEASURED VALUES (JSON only) ==="
     return "\n\n".join(parts) + "\n\n", query       # (shared block, query); joined = icl_predict's prompt text
+
+
+def tag_of(v: str, k: int) -> str:
+    return f"{NAME}_{EFFORT}{'' if v == 'ckpt' else '_' + v}_k{k}"
 
 
 def cost(u) -> float:
@@ -123,20 +133,23 @@ def cost(u) -> float:
 
 
 def cmd_run(a):
-    from openai import OpenAI
+    from openai import OpenAI, BadRequestError
     client = OpenAI(api_key=(Path.home() / ".frontier_api_key").read_text().strip(), timeout=3600, max_retries=5)
-    d = ip.load_data(); T = subset50(d) if a.n50 else subset10(d) if a.n10 else subset(d, a.small)
+    d = ip.load_data()
+    T = (ip.test_rows(d, 1).sort_values(["fold"] + ip.KEYS) if a.full else
+         subset50(d) if a.n50 else subset10(d) if a.n10 else subset(d, a.small))
     if a.max_rows:
         T = T.head(a.max_rows)
     out = ip.OUT / "raw"; out.mkdir(parents=True, exist_ok=True)
     spent, misses = 0.0, 0
     for v in a.version:
         for k in a.k:
-            tag = f"{NAME}_{EFFORT}{'_nockpt' if v == 'nockpt' else ''}_k{k}{'_smoke' if a.max_rows else ''}"
+            tag = tag_of(v, k) + ('_smoke' if a.max_rows else '')
             f = out / f"{tag}.jsonl"
             done = {tuple(json.loads(l)["key"]) for l in f.open()} if f.exists() else set()
             spent += sum(json.loads(l)["cost"] for l in f.open()) if f.exists() else 0
             for fold in range(5):
+                misses = 0        # per fold: a broken cache config misses every call, transients are isolated
                 ex = ip.example_order(d, fold, k)
                 rows = [r for r in T[T.fold == fold].itertuples()
                         if (int(r.example_id), int(r.cot_id), round(r.fraction, 6)) not in done]
@@ -147,11 +160,17 @@ def cmd_run(a):
                     content = [{"type": "input_text", "text": block,   # explicit cache point after the examples
                                 "prompt_cache_breakpoint": {"mode": "explicit"}},
                                {"type": "input_text", "text": query}]
-                    resp = client.responses.create(
-                        model=MODEL, input=[{"role": "user", "content": content}], reasoning={"effort": EFFORT},
-                        extra_body={"prompt_cache_options": {"mode": "explicit"}},
-                        text={"format": {"type": "json_schema", "name": "values", "schema": SCHEMA, "strict": True}},
-                        max_output_tokens=a.max_output, prompt_cache_key=f"{tag}_f{fold}")
+                    try:
+                        resp = client.responses.create(
+                            model=MODEL, input=[{"role": "user", "content": content}], reasoning={"effort": EFFORT},
+                            extra_body={"prompt_cache_options": {"mode": "explicit"}},
+                            text={"format": {"type": "json_schema", "name": "values", "schema": SCHEMA, "strict": True}},
+                            max_output_tokens=a.max_output, prompt_cache_key=f"{tag}_f{fold}")
+                    except BadRequestError as e:   # e.g. GPQA biology questions hit OpenAI's bio_policy filter
+                        return dict(key=[int(r.example_id), int(r.cot_id), round(r.fraction, 6)], fold=fold,
+                                    status="refused", output="", usage=dict(input_tokens=0, cached_tokens=0,
+                                    output_tokens=0, reasoning_tokens=0), cost=0.0, refusal=str(e)[:200],
+                                    seconds=round(time.time() - t0, 1))
                     u = resp.usage
                     us = dict(input_tokens=u.input_tokens, cached_tokens=u.input_tokens_details.cached_tokens,
                               output_tokens=u.output_tokens, reasoning_tokens=u.output_tokens_details.reasoning_tokens)
@@ -167,8 +186,9 @@ def cmd_run(a):
                                 print(f"{tag} fold {fold} {res['key']} {res['status']} in {res['usage']['input_tokens']}"
                                       f" cached {res['usage']['cached_tokens']} reason {res['usage']['reasoning_tokens']}"
                                       f" ${res['cost']:.2f} {res['seconds']}s | total ${spent:.2f}", flush=True)
-                                if not first and res["usage"]["cached_tokens"] < res["usage"]["input_tokens"] / 2:
-                                    misses += 1
+                                if k and not first and res["status"] != "refused" and \
+                                        res["usage"]["cached_tokens"] < res["usage"]["input_tokens"] / 2:
+                                    misses += 1   # k=0 exempt: no example block, prompt below the 1024-token cache floor
                                 if spent > a.budget or misses >= 2:   # in-flight calls (<= workers - 1) still finish
                                     print(f"stop: spent ${spent:.2f} (budget ${a.budget}), cache misses {misses}", flush=True); fh.flush(); os._exit(1)
 
@@ -176,7 +196,7 @@ def cmd_run(a):
 def cmd_score(a):
     for v in a.version:
         for k in a.k:
-            tag = f"{NAME}_{EFFORT}{'_nockpt' if v == 'nockpt' else ''}_k{k}"
+            tag = tag_of(v, k)
             R = pd.DataFrame([json.loads(l) for l in (ip.OUT / "raw" / f"{tag}.jsonl").open()])
             R[ip.KEYS] = pd.DataFrame(R.key.tolist(), index=R.index)
             print(f"{tag}: {len(R)} calls, status {R.status.value_counts().to_dict()}, cost ${R.cost.sum():.0f}, "
@@ -189,15 +209,26 @@ def cmd_score(a):
 def cmd_compare(a):
     """Pooled over the 20 rows (4 per checkpoint is too few per checkpoint): raw ICL predictions vs probes and
     earlier ICL runs on the SAME rows. 95% CI: question bootstrap (2000 draws), paired difference vs ridge."""
-    T = (subset10 if a.n10 else lambda d: subset(d, True))(ip.load_data())[ip.KEYS]
+    T = (subset if a.n100 else subset10 if a.n10 else lambda d: subset(d, True))(ip.load_data())[ip.KEYS]
     S = Path("runs/goal2/gpqa25/sweep/ref_fixed")
     P = pd.concat([pd.read_csv(f) for f in S.glob("preds*.csv")])
     src = {"ridge L21 (ours)": (P, "act_L21", {"ridge_act", "logistic"}), "TF-IDF": (P, "tfidf", {"ridge_text", "logistic"}),
            "prefix_len": (P, "prefix_len", {"ridge_len", "logistic"})}
-    names = ["gpt6_astra"] + (["gpt6_luna"] if a.n10 else [])
-    for tag in [f"{n}_{EFFORT}{v}_k{k}" for n in names for v in ["", "_nockpt"] for k in [10, 50]] + \
-               ["gemma4_31b_off_k0", "gemma4_31b_off_k10", "gemma4_31b_off_k30"]:
-        src[tag] = (pd.read_csv(ip.OUT / f"preds_{tag}.csv"), tag, {"icl_raw"})
+    if a.n100:   # every finished run of THIS model, plus the best local ICL runs for reference
+        tags = sorted(f.name[len("preds_"):-4] for f in ip.OUT.glob(f"preds_{NAME}_{EFFORT}*.csv"))
+        both = True
+    else:
+        names = ["gpt6_astra"] + (["gpt6_luna"] if a.n10 else [])
+        tags = [f"{n}_{EFFORT}{v}_k{k}" for n in names for v in ["", "_nockpt"] for k in [10, 50]]
+        both = False
+    for tag in tags + ["gemma4_31b_off_k0", "gemma4_31b_off_k10", "gemma4_31b_off_k30"]:
+        f = ip.OUT / f"preds_{tag}.csv"
+        if not f.exists():
+            print(f"skip {tag}: no predictions"); continue
+        D = pd.read_csv(f)
+        src[tag] = (D, tag, {"icl_raw"})
+        if both and (D.probe == "icl_cal").any():
+            src[tag + " [calibrated]"] = (D, tag, {"icl_cal"})
     rng = np.random.default_rng(0); B = 2000
     out = []
     for t in ip.TARGETS:
@@ -218,7 +249,9 @@ def cmd_compare(a):
             dd = score(p, idx) - ref
             out.append(dict(label=lab, target=t, score=score(p), diff_vs_ridge=score(p) - score(cols["ridge L21 (ours)"]),
                             ci_lo=np.percentile(dd, 2.5), ci_hi=np.percentile(dd, 97.5)))
-    R = pd.DataFrame(out); R.to_csv(ip.OUT / (f"compare_gpt6_{len(T)}rows.csv" if a.n10 else f"compare_{NAME}_20rows.csv"), index=False)
+    name = (f"compare_{NAME}_{len(T)}rows.csv" if a.n100 else
+            f"compare_gpt6_{len(T)}rows.csv" if a.n10 else f"compare_{NAME}_20rows.csv")
+    R = pd.DataFrame(out); R.to_csv(ip.OUT / name, index=False)
     R["cell"] = [f"{s:.2f} ({d:+.2f} [{lo:+.2f},{hi:+.2f}])" for s, d, lo, hi in zip(R.score, R.diff_vs_ridge, R.ci_lo, R.ci_hi)]
     pd.set_option("display.width", 250)
     print(R.pivot(index="label", columns="target", values="cell")[ip.TARGETS].reindex(list(src)).to_string())
@@ -228,10 +261,12 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("cmd", choices=["run", "score", "compare"])
     p.add_argument("--k", type=int, nargs="+", default=[10, 50, 100])
-    p.add_argument("--version", nargs="+", choices=["ckpt", "nockpt"], default=["ckpt", "nockpt"])
+    p.add_argument("--version", nargs="+", choices=["ckpt", "nockpt", "blind"], default=["ckpt", "nockpt"])
     p.add_argument("--small", action="store_true", help="20-row subset")
     p.add_argument("--n50", action="store_true", help="50-row subset (the 20 + 30, matched to the population)")
     p.add_argument("--n10", action="store_true", help="10 of the 20 small rows, matched to the population")
+    p.add_argument("--full", action="store_true", help="all test rows (1 CoT/question + 0% rows), as the local ICL runs")
+    p.add_argument("--n100", action="store_true", help="compare on the 100-row subset, every finished run of --model")
     p.add_argument("--model", choices=list(PRICES), default="gpt-6-astra")
     p.add_argument("--max-rows", type=int, default=0, help="smoke test: first N rows (fold 0 first)")
     p.add_argument("--max-output", type=int, default=100000)
