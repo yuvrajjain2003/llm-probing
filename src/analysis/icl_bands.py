@@ -37,6 +37,15 @@ def wcorr(y, p, W):
     return (W * a * b).sum(1) / np.sqrt((W * a * a).sum(1) * (W * b * b).sum(1))
 
 
+def wmse(y, p, W):
+    """Weighted mean squared error of p for y under each row-weight vector in W (B, n). -> (B,)
+
+    Round 7, item 1: R2 inside a band divides by that band's own target variance, which is why two
+    bands read below -1 (the truth is nearly constant there). MSE has the same units in every band.
+    For the binary target this is the Brier score of the predicted probability."""
+    return (W * (y[None, :] - p[None, :]) ** 2).sum(1) / W.sum(1)
+
+
 def wr2_recentred(y, p, W):
     """Weighted R2 after shifting the prediction so its mean matches the truth's, INSIDE the subset.
 
@@ -53,13 +62,17 @@ def wr2_recentred(y, p, W):
 
 def score_rows(P, keep_q, labels):
     """Mean over the five cuts, with question-bootstrap CIs, on the questions in keep_q."""
-    draws, cdraws, rdraws, point = {}, {}, {}, []
+    draws, cdraws, rdraws, mdraws, point = {}, {}, {}, {}, []
     for t in TARGETS:
         for f in dc.FRACS:
             x = P[(P.target == t) & (P.fraction.round(3) == f) & (P.example_id.isin(keep_q))]
             wide = x.pivot_table(index=["example_id", "cot_id"], columns="label", values="y_pred").dropna()
             y = (x.drop_duplicates(["example_id", "cot_id"]).set_index(["example_id", "cot_id"])
                  .y_true.loc[wide.index].to_numpy(float))
+            # mean of the truth over EVERY question at this cut, not only this band's: the reference
+            # line that shows how much work band membership alone does
+            gmean = float(P[(P.target == t) & (P.fraction.round(3) == f)]
+                          .drop_duplicates(["example_id", "cot_id"]).y_true.astype(float).mean())
             eid = wide.index.get_level_values(0).to_numpy()
             qs = np.sort(np.unique(eid)); qi = {int(v): i for i, v in enumerate(qs)}
             Wq = np.random.default_rng(SEED).multinomial(len(qs), np.ones(len(qs)) / len(qs), size=B).astype(float)
@@ -78,9 +91,13 @@ def score_rows(P, keep_q, labels):
                     pt = pr = c.mean()
                 r = (np.corrcoef(y, p)[0, 1] if y.std() > 0 and p.std() > 0 else np.nan)
                 cdraws[(lab, t, f)] = wcorr(y, p, W)
+                mdraws[(lab, t, f)] = wmse(y, p, W)
                 point.append(dict(label=lab, target=t, fraction=f, score=pt, score_recentred=pr, n=len(y),
-                                  n_questions=len(qs), target_sd=float(y.std()), wcorr=float(r)))
-    return pd.DataFrame(point), draws, cdraws, rdraws
+                                  n_questions=len(qs), target_sd=float(y.std()), wcorr=float(r),
+                                  mse=float(((y - p) ** 2).mean()),
+                                  mse_band_mean=float(((y - y.mean()) ** 2).mean()),
+                                  mse_global_mean=float(((y - gmean) ** 2).mean())))
+    return pd.DataFrame(point), draws, cdraws, rdraws, mdraws
 
 
 def main():
@@ -94,10 +111,13 @@ def main():
     groups = [("all questions", dif.index)] + [(b, dif.index[dif[a.band_col] == b]) for b in ORDER]
     sd_all = None
     for band, qs in groups:
-        pt, draws, cdraws, rdraws = score_rows(P, set(qs), LABELS)
+        pt, draws, cdraws, rdraws, mdraws = score_rows(P, set(qs), LABELS)
         m = pt.groupby(["label", "target"]).score.mean()
         mr = pt.groupby(["label", "target"]).score_recentred.mean()
         mc = pt.groupby(["label", "target"]).wcorr.mean()
+        mm = pt.groupby(["label", "target"])["mse"].mean()
+        mbm = pt.groupby("target")["mse_band_mean"].mean()
+        mgm = pt.groupby("target")["mse_global_mean"].mean()
         sd = pt.groupby("target").target_sd.mean()
         nq = pt.n_questions.min()
         if sd_all is None:
@@ -107,6 +127,7 @@ def main():
                 d = np.mean([draws[(lab, t, f)] for f in dc.FRACS], 0)
                 cd = np.mean([cdraws[(lab, t, f)] for f in dc.FRACS], 0)
                 rd = np.mean([rdraws[(lab, t, f)] for f in dc.FRACS], 0)
+                md = np.mean([mdraws[(lab, t, f)] for f in dc.FRACS], 0)
                 sc_all.append(dict(band=band, band_col=a.band_col, n_questions=nq, label=lab, target=t,
                                    score=m.loc[(lab, t)], ci_lo=np.percentile(d, 2.5),
                                    ci_hi=np.percentile(d, 97.5), target_sd=sd.loc[t],
@@ -115,19 +136,28 @@ def main():
                                    corr_ci_hi=np.nanpercentile(cd, 97.5),
                                    score_recentred=mr.loc[(lab, t)],
                                    recentred_ci_lo=np.nanpercentile(rd, 2.5),
-                                   recentred_ci_hi=np.nanpercentile(rd, 97.5)))
+                                   recentred_ci_hi=np.nanpercentile(rd, 97.5),
+                                   mse=mm.loc[(lab, t)], mse_ci_lo=np.percentile(md, 2.5),
+                                   mse_ci_hi=np.percentile(md, 97.5),
+                                   rmse=float(np.sqrt(mm.loc[(lab, t)])),
+                                   mse_band_mean=mbm.loc[t], mse_global_mean=mgm.loc[t]))
                 if lab == dc.OURS:
                     continue
                 dd = d - np.mean([draws[(dc.OURS, t, f)] for f in dc.FRACS], 0)
                 lo, hi = np.nanpercentile(dd, [2.5, 97.5])
                 cdd = cd - np.mean([cdraws[(dc.OURS, t, f)] for f in dc.FRACS], 0)
                 clo, chi = np.nanpercentile(cdd, [2.5, 97.5])
+                mdd = md - np.mean([mdraws[(dc.OURS, t, f)] for f in dc.FRACS], 0)
+                mlo, mhi = np.nanpercentile(mdd, [2.5, 97.5])
                 pr_all.append(dict(band=band, n_questions=nq, label=lab, target=t,
                                    diff=m.loc[(lab, t)] - m.loc[(dc.OURS, t)], ci_lo=lo, ci_hi=hi,
                                    significant=bool(lo > 0 or hi < 0),
                                    corr_diff=mc.loc[(lab, t)] - mc.loc[(dc.OURS, t)],
                                    corr_ci_lo=clo, corr_ci_hi=chi,
-                                   corr_significant=bool(clo > 0 or chi < 0)))
+                                   corr_significant=bool(clo > 0 or chi < 0),
+                                   mse_diff=mm.loc[(lab, t)] - mm.loc[(dc.OURS, t)],
+                                   mse_ci_lo=mlo, mse_ci_hi=mhi,
+                                   mse_significant=bool(mlo > 0 or mhi < 0)))
         print(f"{band:14s} ({nq:3d} questions, {nq*5:4d} rows) done")
     SC = pd.DataFrame(sc_all); PR = pd.DataFrame(pr_all)
     SC.to_csv(OUT / "p5_bands_scores.csv", index=False); PR.to_csv(OUT / "p5_bands_paired.csv", index=False)
@@ -142,6 +172,12 @@ def main():
         print(f"-- within-cut correlation (offset-free; R2 above punishes an uncorrected offset), {sh[t]}:")
         print(x.pivot_table(index="label", columns="band", values="within_cut_corr")
               .reindex(columns=["all questions"] + ORDER).reindex(LABELS).round(3).to_string())
+        print(f"-- MSE inside the band (same units in every band), {sh[t]}; "
+              f"band-mean and full-set-mean references on the last two rows:")
+        mt_ = x.pivot_table(index="label", columns="band", values="mse") \
+            .reindex(columns=["all questions"] + ORDER).reindex(LABELS)
+        ref = x.drop_duplicates("band").set_index("band")[["mse_band_mean", "mse_global_mean"]].T
+        print(pd.concat([mt_, ref.reindex(columns=["all questions"] + ORDER)]).round(4).to_string())
         print(f"-- Luna k=0 minus our probe, {sh[t]}:")
         for _, r in PR[(PR.target == t) & (PR.label == "Luna k=0")].iterrows():
             print(f"   {r.band:14s} {r['diff']:+.3f} [{r.ci_lo:+.3f},{r.ci_hi:+.3f}] sig={r.significant}")
