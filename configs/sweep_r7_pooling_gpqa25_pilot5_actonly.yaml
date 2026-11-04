@@ -1,0 +1,26 @@
+# Round 7 item 7: ridge/logistic on the LAST-token, MEAN-pooled and MAX-pooled layer-21
+# states, on exactly the rows the all-token store covers (GPQA, cot_id < 5, 198 questions).
+# Same grids, folds and fold_seed as configs/sweep_ref.yaml, so the numbers are comparable
+# with every published approach. act_dir is a filtered VIEW of the published store
+# (symlinked .npy, subset index) made by attn_probe.py actdir, so the last-token arm is
+# literally the published probe's input.
+act_dir: runs/goal2/gpqa25/sweep/r7_pooling/_act_pilot5
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/r7_pooling/ridge_pilot5
+folds: 5
+fixed_folds: true
+fold_seed: 0
+fractions: [0.1, 0.3, 0.5, 0.7, 0.9]
+targets: [answer_entropy_bits_mm, p_mode, rem_len_mean, rem_len_std, committed_by_here]
+
+features:
+  act_L21:  {type: act, layers: [21]}
+
+
+
+probes:
+  ridge_act: {class: ridge,    grid: {alpha: {logspace: [0, 6, 13]}}}
+  logistic:  {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+
+runs:
+  - {features: [act_L21], probes: [ridge_act, logistic]}

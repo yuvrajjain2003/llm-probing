@@ -1,0 +1,16 @@
+act_dir: runs/goal2/gpqa25/sweep/r7_pooling/_act_partial
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/gpqa25/sweep/r7_pooling/ridge_partial
+folds: 5
+fixed_folds: true
+fold_seed: 0
+fractions: [0.5]
+targets: [answer_entropy_bits_mm, rem_len_mean]
+features:
+  act_L21:  {type: act, layers: [21]}
+  mean_L21: {type: npy, path: runs/goal2/gpqa25/sweep/r7_pooling/_partial/pooled_mean.npy, keys: runs/goal2/gpqa25/sweep/r7_pooling/_partial/pooled_keys.parquet}
+  max_L21:  {type: npy, path: runs/goal2/gpqa25/sweep/r7_pooling/_partial/pooled_max.npy,  keys: runs/goal2/gpqa25/sweep/r7_pooling/_partial/pooled_keys.parquet}
+probes:
+  ridge_act: {class: ridge, grid: {alpha: {logspace: [0, 6, 13]}}}
+runs:
+  - {features: [act_L21, mean_L21, max_L21], probes: [ridge_act]}
