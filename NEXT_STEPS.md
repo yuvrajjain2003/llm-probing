@@ -1,5 +1,7 @@
 # NEXT_STEPS.md
 
+> **SUPERSEDED 2026-11-03.** The live to-do list is now `NEXT_STEPS_2026-11-03.md` (round 7, from the 2026-11-03 professor meeting). Round 6, which this file tracks, is closed: all four actions and both concerns are done. Keep this file for the round-6 reasoning and the falsifiable prediction it recorded before the data came in.
+
 _Written 2026-10-29 from the user's notes after the 2026-10-27 meeting; updated 2026-11-01._
 _**Jump to "Where to actually start" near the bottom if you are a new session.** Actions 1 and 2 and_
 _both concerns are DONE; the rest of this file is the record of how and why._
