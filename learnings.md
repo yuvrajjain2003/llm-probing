@@ -409,3 +409,347 @@ nothing.
 
 Note the key is shared between Sycamore login and GitHub. Untidy but not dangerous; a dedicated
 GitHub-only key would be cleaner if anyone wants to separate them.
+
+## 2026-11-01 - Slurm account `rc_ssriva_pi` is NOT the Unix group `rc_ssriva_pi`
+
+Scott (`smerrill`) ran MMLU-Pro and GlobalOpinionQA on Longleaf and said he had "given read access
+to anyone in the lab" for `/work/users/s/m/smerrill/llm-probing`. We still got `Permission denied`
+from both clusters. The cause is a name collision between two unrelated systems:
+
+- **Slurm account** `rc_ssriva_pi` - controls who may charge compute to the lab allocation.
+  `yuvraj` HAS this (`sacctmgr show assoc user=yuvraj` lists it; it is the account `CLAUDE.md`
+  tells us to pass to `sbatch`).
+- **Unix group** `rc_ssriva_pi` (gid 7105) - controls who may read files. `yuvraj` does NOT have it.
+
+There are two ssriva Unix groups and they are nearly disjoint:
+
+| group | members |
+|---|---|
+| `rc_ssriva_pi` (7105) | chidaksh, ssriva, kzaman, ambati, asameull, adinara, smerrill, anika17 |
+| `rc_ssrivalab_psx` (3583) | ssriva, kzaman, yuvraj, rishp |
+
+Only `ssriva` and `kzaman` are in both. His dir is `drwxr-s--- smerrill:rc_ssriva_pi`, so group read
+reaches his group and `other` gets nothing - hence no access for us, and holding the Slurm account of
+the same name does not help. **Do not infer file access from the Slurm account, or from being "in the
+lab".** Check `id -Gn` against `stat -c '%A %U:%G'` on the actual path.
+
+Fixes, in order of preference:
+1. Permanent: ask `research@unc.edu` (cc ssriva) to add `yuvraj` and `rishp` to the Unix group
+   `rc_ssriva_pi`. Holding the Slurm account already makes this an easy ask.
+2. Owner-side, no admin: `chmod o+x` his top dir (traverse only, still not listable), then
+   `chgrp -R rc_sm_h100_psx` + `chmod -R g+rX` on the subtree. `yuvraj` and `smerrill` already share
+   `rc_gaussian_psx` and `rc_sm_h100_psx`, so no new group is needed.
+3. `setfacl -m u:yuvraj:rx` on the top dir plus `-R -m u:yuvraj:rX` (and `d:u:yuvraj:rX` for files a
+   still-running job will create) on the subtree. `/work` is NFS, so ACLs are less reliable than (2).
+
+## 2026-11-01 - Cross-cluster facts worth keeping (Sycamore <-> Longleaf)
+
+Established while chasing the above, all verified:
+
+- **SSH from Sycamore to Longleaf works with key auth and no Duo prompt.** The Sycamore key
+  (`~/.ssh/id_rsa`, the same one now on GitHub) was added to Longleaf's `authorized_keys` on
+  2026-11-01, so `ssh -o BatchMode=yes yuvraj@longleaf.unc.edu` runs unattended. Needed a TTY to
+  install: `ssh-copy-id` run inside a Claude session fails with `Permission denied` then
+  `Too many authentication failures`, because there is no terminal for the password prompt and ssh
+  tries the key first. Pass `-o PreferredAuthentications=password -o PubkeyAuthentication=no`.
+- **`/proj` and `/work` are both shared across the two clusters.** `/proj` is
+  `rc-isilon2-sm.its.unc.edu:/ifs/rcisilon/proj`; `/work` is `hpc.loblolly.its.unc.edu:/work`.
+  So a copy into `/proj/ssrivalab/...` from Longleaf appears on Sycamore with nothing crossing the
+  network, and `/work/users/<x>/<y>/<user>` is the same directory on both. A corollary: `rishp` has
+  no `/work` dir on *either* cluster, so his absence there is not a Longleaf-only fact.
+- **`/proj/ssrivalab/users/shared` is `drwxrwsrwx`** and setgid to `rc_ssrivalab_psx` - a usable
+  dropbox for anyone outside our group, since they can write but new dirs still land in our group.
+  Group *permissions* still depend on the writer's umask, so ask for `--chmod=Dg+rwx,Fg+rw`.
+- **`getent passwd` does not enumerate LDAP users** on Longleaf (37 local entries vs 10,017 home
+  dirs), so you cannot find a collaborator by grepping for their name. `getent group <name>` and
+  `id <user>` do work once you know the login. `sacct -a` DOES show all users' jobs, which is a good
+  way to find who ran what.
+- Stage job names are hardcoded `gpqa25-*` in `runs/gpqa25/*.sh` regardless of `RUN_TAG`, so a run
+  of another dataset still shows up in `sacct` as `gpqa25-base`, `gpqa25-cont`, etc. Useful for
+  finding other people's runs of this pipeline; misleading if you read job names as the dataset.
+
+## 2026-11-01 - difficulty bands on the new datasets: a 5-sample p_gold is coarse, not noisy
+
+Building P2.1/P2.2 of `docs/plan_newdatasets.md` (`src/analysis/newds_difficulty.py`, report
+`runs/goal2/_newds_reports/p2_difficulty.md`).
+
+- **`p_gold` at the 0% cut has 11 distinct values on MMLU-Pro, not 6.** `n_valid` is below 5 for 120
+  of 2,500 questions, and `p_gold = n_correct / n_valid`, so the denominators 2, 3 and 4 add
+  0.25, 0.33, 0.5, 0.67, 0.75.
+- **Coarse is not the same as noisy.** 5-draw `p_gold` on MMLU-Pro has reliability 0.92 (noise share
+  8 percent) against 0.96 for GPQA's 25 draws, because the true between-question spread is much
+  larger (65 percent of questions are all right or all wrong). What breaks is banding, not
+  partialling: a quadratic uses the value, bands have to cut between values.
+- **Equal-size quintiles are impossible when an atom exceeds 20 percent of the data**, and tie-breaking
+  cannot rescue it. The `p_gold = 1` atom is 978 of 2,499 MMLU-Pro questions, and every one of them has
+  0%-cut entropy exactly 0 and `p_mode` exactly 1 (all five valid answers are the gold answer), so no
+  0%-cut statistic can order them. Result: 55 percent of quintile assignments come from a tie-break and
+  the top two quintiles are 100 percent arbitrary. Use fixed cut points (`band_int`), which never split
+  an atom, and report per-band n. Same problem on GlobalOpinionQA: 773 questions (30 percent) sit at
+  normalised 0% entropy exactly 0.
+- **Band orientation is a real bug source.** An accuracy measure runs v_hard to v_easy as it rises, an
+  uncertainty measure runs the other way. Two banding schemes built independently will disagree unless
+  one orientation flag drives both.
+- **GPQA's published `n_correct` is correct-out-of-K, not correct-out-of-n_valid.** Banding on the rate
+  instead of the count moves 2 of 198 questions and stops the reproduction matching.
+- **GlobalOpinionQA has a non-circular difficulty measure available and it has no power.** The released
+  dataset's `selections` field gives human response distributions per country; pooled human entropy,
+  its normalised form and cross-country dispersion all share under 0.03 of any target's variance
+  (normalised: 0.008 with entropy, 0.000 with remaining length, commitment AUC 0.511). **The model's
+  answer spread is unrelated to how divided human respondents are.** The only measures with power are
+  the model's own 0%-cut uncertainty, which is the entropy target read at cut 0, so an entropy
+  conclusion there is close to tautological. Length is unaffected and is the clean part.
+- **`dataset_index` in GlobalOpinionQA's `examples.csv` is not a reliable index into the released
+  file** (it disagrees for roughly the last 17 rows). Join on question text instead: `examples.csv`
+  prepends one instruction paragraph, so split on the FIRST blank line only (`n=1`) or multi-paragraph
+  questions get truncated, which silently dropped 279 of 2,555 joins on the first attempt.
+- **Normalising by `log2(n_options)` is not cosmetic when `n_options` varies 2 to 15.** Raw 0% entropy
+  correlates +0.329 with `n_options` and human entropy +0.787. Banded on the normalised measure, the
+  normalised entropy target rises monotonically (0.228 to 0.610) while the raw target is
+  non-monotonic (0.407 / 0.757 / 0.902 / 0.821 / 0.786). Band and target must share a scale.
+- **GPQA's "confidently wrong" non-monotonicity replicates on MMLU-Pro**, weaker: mean entropy by
+  `band_int` 0.900 / 1.087 / 0.962 / 0.551 / 0.126, so the never-right band is below the
+  sometimes-right one. Difficulty shares about as much with entropy as on GPQA (0.52 to 0.14) and much
+  less with remaining length (0.05 to 0.04 against GPQA's 0.19 to 0.07).
+
+## 2026-11-01 - the frontier-ICL cache-miss guard would have killed the MMLU-Pro run (P3.1 prep)
+
+Three things found while generalising `icl_openai.py` / `icl_predict.py` off GPQA. No API calls were
+made; there is no credit.
+
+- **`cached_tokens < input_tokens / 2` is the wrong test for a broken cache**, and MMLU-Pro trips it
+  honestly. Measured on a 500-question MMLU-Pro k=10 run: the worst cached share per fold is
+  0.44-0.48, with 1 to 4 calls per fold below 0.5, because its longest 90% prefixes (query up to
+  12,146 tokens) are bigger than a 10-example block (~9,900 tokens). The old threshold of 2 per fold
+  would have aborted folds 0, 2, 3 and 4 with the cache working perfectly. GlobalOpinionQA's worst
+  fold is 0.59, so this is dataset-shape-dependent and GPQA never showed it. The guard now tests
+  `cached_tokens == 0`, which is the real signature of a broken cache configuration, with the
+  threshold exposed as `--max-cache-misses` (default 5, still reset per fold).
+- **`tiktoken` can price an un-mapped model exactly, if you calibrate against stored calls.** There is
+  no `tiktoken` mapping for `gpt-6-luna`, but over 2,554 stored calls with their prompts rebuilt by
+  the real code path, `usage.input_tokens == len(o200k_base(block)) + len(o200k_base(query)) + 63`
+  **exactly, every time** (max residual 0). So an offline cost estimate for this model is exact on the
+  input side; only output tokens have to be assumed. Do this calibration before guessing at a scale
+  factor. Data: `runs/goal2/_newds_reports/token_calibration_gpqa.csv`.
+- **`test_rows` sampled the CoT to keep from a hardcoded `permutation(25)`.** The new datasets have 5
+  CoTs per question, so the sampled id landed inside 0-4 for only 19.7% (MMLU-Pro) and 19.8%
+  (GlobalOpinionQA) of questions: four questions in five would have contributed nothing but their 0%
+  row, silently. Now `ICL_N_COTS`. Any constant equal to a dataset's size is a portability bug.
+
+Two smaller ones:
+- **`--full` does not mean the same thing on a bigger dataset.** It is 1,178 rows on GPQA (198
+  questions) and ~15,000 on these two, i.e. $118 instead of $11 for three configs. Added
+  `--n-questions N` (fold-balanced, default off). Power tracks question count, not rows, because the
+  bootstrap resamples questions.
+- **A launcher that `export`s its paths unconditionally will overwrite the directory you were trying
+  to protect.** `runs/newds_icl_luna.sh` set `ICL_OUT` with a bare `export`, so an outer
+  `ICL_OUT=<scratch> ... DS=gpqa25 ... plan` still wrote 12 new `plan_*`/`dryprompt_*` files into
+  `runs/goal2/gpqa25/icl/` (nothing existing was overwritten; all 12 removed). Use `${VAR:-default}`
+  in launchers so an outer value wins.
+
+- 2026-11-01 GEPA: a metric scored on RAW predictions rewards getting the scale right, so GEPA writes per-checkpoint priors into the prompt and kills the ranking; calibrated test R2 halves. If rerun, score the metric on rank/calibrated quantities (e.g. within-cut correlation over a minibatch), not per-row raw error.
+- 2026-11-01 GEPA retry: squared error on PERCENTILES is still not scale-free - it rewards shrinking predictions toward the middle when correlation is moderate. Only a batch-level rank/correlation score is truly ranking-only, and DSPy's GEPA metric is per row. Also: `pkill -f <pattern>` killed my own shell (pattern was in its command line) - kill by PID.
+
+## 2026-11-01 - question-text-only baseline: the weighted-question-level trick, and what it found
+
+Building P5 (`src/analysis/qtext_baseline.py`, `qtext_compare.py`, report
+`runs/goal2/_newds_reports/p5_qtext_baseline.md`).
+
+- **A question-level feature means you can fit at question level and it is EXACT, not an
+  approximation.** All rows of a question at one cut share its feature vector, so the within-question
+  sum of squares is constant in the coefficients: weighted least squares on question means with
+  weight = row count reproduces the row-level ridge fit. For logistic, enter each question twice (as a
+  1 with weight n1 and a 0 with weight n0). Verified against direct row-level sklearn fits: max
+  difference 4.1e-4 of a target sd on 9 checks across 3 datasets. This turned 12,400 rows per cut into
+  2,500 and made a 3-vectoriser x 7-alpha nested sweep affordable on CPU (6 to 43 min per dataset).
+- **Check equivalence in RELATIVE units.** My first verify used an absolute 1e-3 threshold and
+  reported MISMATCH on `rem_len_mean`, whose sd is 700 to 820 tokens. The actual relative error was
+  4e-4, i.e. conjugate-gradient solver tolerance. An absolute tolerance is meaningless when targets
+  on the same table range from ~1 bit to ~1000 tokens.
+- **NFS mtime caching bit an edit-then-srun sequence.** After patching a file and immediately running
+  it through `srun`, the compute node executed the OLD text. `rm -rf src/<pkg>/__pycache__` before the
+  rerun fixed it. If a code change appears not to have taken effect on a compute node, suspect this
+  before suspecting the edit.
+- **GlobalOpinionQA raw answer entropy is substantially an option counter.** A quadratic in
+  `log2(n_options)` alone explains 0.251 / 0.190 / 0.147 / 0.091 / 0.046 of raw entropy at the five
+  cuts (mean 0.145, in sample); on MMLU-Pro the same control gives 0.004. Normalising drops it to
+  0.017 to 0.004. So any text-based predictor that sees the choices gets most of its raw-entropy R2
+  there for free, and a text prediction of RAW entropy correlates +0.642 with `n_options`. Always pair
+  the normalised measure with the normalised target on that dataset.
+- **`n_options` on GlobalOpinionQA runs 2 to 18, not 2 to 15** (one question each at 17 and 18).
+  `p2_difficulty.md` says 2 to 15. Only matters for the top edge of an equal-width band.
+- **An out-of-fold text prediction IS a non-circular difficulty measure, and its bands are better
+  than a rollout-derived measure's.** Because it is continuous, quintiles come out exactly equal
+  sized with ZERO arbitrary tie-breaks, against 0.55 for MMLU-Pro `p_gold` and 0.41 for
+  GlobalOpinionQA `ent0_norm`. The reverse holds for `band_int`: equal-width bands on a shrunk
+  predicted distribution are badly unbalanced (GlobalOpinionQA smallest (band, fold) cell = 2
+  questions). **Use `band_quintile` with a predicted measure and `band_int` with an atomic one.**
+- **Bias direction is opposite for the two measure families and should always be stated.** A
+  rollout-derived difficulty is label-derived, so it over-removes and partialled scores are a LOWER
+  bound. A text-predicted difficulty is attenuated, so it under-removes and partialled scores are an
+  UPPER bound. Reporting both brackets the answer; either alone is one-sided.
+- **The finding itself:** question text alone recovers 17 to 49 percent of the probe's R2 on GPQA and
+  MMLU-Pro (significantly below on every target), but on GlobalOpinionQA it TIES the probe on raw
+  entropy, `p_mode` and commitment accuracy. At the 0 percent cut, where both see only the question,
+  the activations keep 1.5 to 2.5x the text's R2 on MMLU-Pro (all five targets significant) and
+  essentially nothing extra on GlobalOpinionQA (92 to 96 percent text-recoverable, n.s. on three of
+  five). GPQA points the same way as MMLU-Pro but only remaining length clears significance at 198
+  questions.
+- **`bootstrap_ci.py` labels its primary prediction column "activations" and its output file
+  `bootstrap_ci_vs_*.csv` regardless of what you put there.** Reusing it on a non-activation
+  predictor is fine and its intervals cross-checked mine to 3 dp, but the column name in the written
+  CSV will mislead a later reader. Say so wherever such a file is referenced.
+
+## 2026-11-02 - new-dataset slide figures (`src/viz/newds_figures.py`)
+
+Building the eight PNGs in `docs/figures/newds/` from the P1/P4/P5/P6 CSVs. Nothing was refitted.
+
+- **`DataFrame.transform` is a METHOD, so `d.transform == "log1p"` is silently always False** and the
+  filtered frame comes back empty with no error. It cost a full render of figure 7 that came out as
+  six blank panels, and the only visible symptom was `nan%` in an annotation built from the same bad
+  filter. Any column named after a pandas method (`transform`, `count`, `min`, `max`, `index`,
+  `size`, `shape`, `values`, `mean`) must be reached with `d["transform"]`. Worth a grep whenever a
+  panel comes out empty.
+- **`dict.get(k, FALLBACK[k])` evaluates the fallback eagerly**, so a `.get` whose default indexes
+  another dict raises `KeyError` on exactly the keys the `.get` was meant to handle. Use
+  `dict.get(k) or FALLBACK[k]`.
+- **`sharex="col"` across rows that need different x ranges silently applies the LAST `set_xlim`
+  to both.** Figure 4's top row rendered on the bottom row's limits and every point fell off the
+  axis. If two rows are different quantities, do not share.
+- **Two "published" commitment numbers exist for the same probe and they differ.** `ref_fixed`
+  (shallow logistic grid) gives GPQA AUC 0.784 and GlobalOpinionQA 0.683; `ref_logistic_deep`
+  (C down to 1e-8) gives 0.761 and 0.671, because the deep grid collapses at the 90% cut where the
+  target is at its base rate. `_qtext/cmp_scores.csv` carries the DEEP numbers, `_ref_ci/` and
+  `_gpqa_method_check/` carry the SHALLOW ones, and both files are in the repo. CLAUDE.md's 0.7612
+  and P1's 0.784 are therefore both correct and not comparable. **State which grid any commitment
+  AUC came from.** On MMLU-Pro the two agree to 4 dp, which is why it went unnoticed.
+- **A paired-difference interval and a single-score interval tighten at different rates and both get
+  called "the CI".** On entropy, ours-minus-TF-IDF goes 0.031 to 0.011 (2.8x) while our probe's own
+  score goes 0.056 to 0.015 (3.7x). The brief's "0.056 to 0.015" is the single-score one. Label the
+  axis with which it is.
+- **`p6_difficulty_scoring.md` section 2 states the ours-minus-TF-IDF entropy gaps with the wrong
+  SIGN** (-0.032 GPQA, -0.063 MMLU-Pro). `p2_ci_paired.rollout.csv` holds both directions as
+  separate rows; the quoted values are the `TF-IDF minus ours` rows. The activations are AHEAD, and
+  on MMLU-Pro the gap GROWS after difficulty removal (+0.055 to +0.063), which is a stronger result
+  than the report's wording conveys. Whenever a file stores both directions of a paired comparison,
+  filter on `label` AND `minus`, never on `target` alone.
+- **A per-cut number usually has no interval even when the mean over cuts does.** The published
+  bootstraps (`p2_per_checkpoint`, `_loglen/results.csv`) store point estimates per cut and intervals
+  only for the five-cut mean. Say so on the figure rather than drawing a bare point; where a mean
+  with an interval exists, a narrow "mean" column beside the per-cut curve shows both honestly.
+
+- 2026-11-03: DSPy + litellm at 128 threads: the first concurrent calls can hit "deadlock detected by _ModuleLock('litellm.types.utils')" (lazy import race). 7 rows failed at startup of GEPA job 5003449, none after; 64 threads in the smoke test had 0. Harmless but scores those rows as failures; warm up with one call before going parallel if it matters. Don't make a watcher exit on any "Traceback" in a DSPy log, since DSPy logs and continues past per-row errors.
+- 2026-11-03: Never share a DSPy disk cache (DSPY_CACHEDIR, SQLite) between Slurm jobs on different nodes: on NFS it got corrupted ("file is not a database", "database disk image is malformed") and every later call in BOTH jobs failed, scored as failures. gemma_job.sh now uses one cache dir per job. Also: import litellm fully in the main thread before threaded DSPy calls (make_lm does it now); the lazy-import race failed ~half the seed rows of a 32-thread run.
+- 2026-11-04: **Slurm compute nodes do not share the Claude session scratchpad.** It lives under
+  `/tmp/claude-<id>/...`, and `/tmp` is node-local, so a job given `--out-dir` (or `--config`)
+  there writes to that node's own `/tmp` and the login node sees nothing: the output dir simply
+  never appears, which looks exactly like a hung job. Put both the config and the out_dir under
+  `/proj` for anything submitted with sbatch/srun. Scratch dirs under `runs/goal2/<tag>/sweep/`
+  with a leading underscore are the convention used for check artefacts.
+
+## 2026-11-04 - round 7, items 1 to 4: four traps, one of them a dataset column that lies
+
+**1. `human_disagree` on GlobalOpinionQA is identically 0 for 848 of 2,554 questions, and that zero
+is not a measurement.** `newds_difficulty.human_measures` defines it as the mean total-variation
+distance of a country's answer distribution from the pooled one, so a question surveyed in exactly
+ONE country has nothing to deviate from and scores 0 by construction. 849 of the 2,556 released
+GlobalOpinionQA rows have `n_countries == 1`. The published `question_difficulty.csv` does not carry
+`n_countries`, so the lump is invisible unless you look at the histogram (33% of the mass at exactly
+zero, median 0.112). Recompute `n_countries` by importing `human_measures` and use only the 1,706
+multi-country questions. The correlations move when you do: with `p_mode0` -0.054 -> **-0.114**, with
+`n_options` +0.370 -> **+0.402**.
+
+Once fixed, the result is clean and worth reporting: an in-sample quadratic in `human_disagree`
+explains **0.044** of the question-mean RAW entropy and **0.004** of the NORMALISED entropy, against
+`p_mode0`'s 0.427 / 0.271. So the model's uncertainty on an opinion question has essentially nothing
+to do with whether humans disagree about it, and the little raw-scale signal there is is the
+option-count confound again.
+
+**2. `d.transform` bit again, in a new script.** `C.transform == "raw"` is the DataFrame METHOD
+compared to a string, which is the scalar `False`, which pandas then looks up as a COLUMN NAME and
+raises `KeyError: False`. Same bug that crashed `loglen_refit.py`'s CI block on 2026-11-02. It is
+now a 100% reproduction rate for anyone who writes a `transform` column. Always `d["transform"]`.
+
+**3. A coarse x axis is coarse because of a MINORITY population, not because of rounding.**
+MMLU-Pro's `p_gold` takes 11 values; the 5 on-grid ones (0, 0.2, ... 1.0) are the questions with all
+5 rollouts valid and the 6 off-grid ones (0.25, 0.333, 0.5, 0.75, ...) come only from the 70
+questions with fewer than 5 valid rollouts, 9 to 16 questions each. GlobalOpinionQA's `p_mode0` has
+exactly the same structure. Plotted without a minimum bin size they produce large spikes that look
+like signal. Drop bins under about 2 percent of the dataset's questions (a FRACTION, so GPQA's 198
+questions survive the same rule), keep them in the CSV, and say so.
+
+**4. Absolute error and relative error answer the professor's question in opposite directions, and
+both are true.** Asked whether prediction error rises as question accuracy falls: in MSE it does
+(MMLU-Pro entropy 0.387 bits^2 at `p_gold` = 0 down to 0.160 at `p_gold` = 1), which is the opposite
+of what the round-7 plan predicted. But the MSE of simply guessing that bin's own mean falls faster
+(0.536 down to 0.095), so the easy end is the only place the probe is beaten by a constant. Report
+the error curve WITH the two reference lines (bin mean, full-set mean) or the reader will take the
+first fact for the whole answer. The same arithmetic is what makes GPQA `v_easy` read R2 -1.090 while
+having the lowest RMSE of any band (0.471 bits against a band spread of 0.279).
+
+**Method note worth keeping:** adding a metric to a published script and proving nothing moved is
+cheap if you redirect the OUTPUT rather than edit in place. `r7_bands_mse.py` repoints
+`icl_bands.OUT` at a new `_r7bands` directory, runs the unchanged pipeline and diffs all 16 published
+columns against `_iclsplit` / `_iclbands` (max abs diff 0.000e+00 on all three datasets, NaN pattern
+included - the published files already hold NaN in a few CI cells, so a plain `max()` returns NaN and
+looks like a failure; use `nanmax` plus an explicit NaN-pattern check).
+- 2026-11-04: **"Pooled across depth" means two different things and they are different artefacts.**
+  (a) *Pooled evaluation of per-cut fits*: take `ref_fixed`'s per-cut out-of-fold predictions and
+  compute one R2 over all cuts. That is what RESEARCH.md's "prefix_len 0.718 vs ours 0.716" is, and
+  it reproduces exactly from `ref_fixed/preds*.csv` (and on GlobalOpinionQA, 0.587 vs 0.566).
+  (b) *A single pooled fit*: one probe for all cuts. There `prefix_len` alone scores -0.012 on GPQA
+  `rem_len_mean` and -0.067 on GlobalOpinionQA, because one global slope cannot serve a relationship
+  that changes with depth, and its within-cut R2 is -1.32 (-5.29 at the 90% cut alone). So (a) is
+  the version where a trivial scalar matches our probe; (b) is not. Say which one is meant.
+- 2026-11-04: **A `fraction`-only pooled fit is the cheapest possible floor and every pooled table
+  should carry it.** The cut indicator with no activations scores pooled entropy 0.089 / 0.107 /
+  0.121 and pooled `rem_len_mean` 0.316 / 0.097 / 0.326 on GPQA / MMLU-Pro / GlobalOpinionQA, while
+  its within-cut R2 is -0.004 to 0.000 and its within-cut commitment AUC is 0.497. It also
+  double-checks the one-hot survives `Feature._prep` (its `sd < 1e-8` guard would silently zero a
+  cut absent from a fold; verified that every cut is present in every fold on all three datasets).
+
+## 2026-11-04 - round 7, item 7: all-token store and weighted-pooling probes
+
+- **One forward pass per CoT gives you every cut's tokens, and the cuts nest.** Because the model
+  is causal, the tokens of the 10% cut are a PREFIX of the tokens of the 90% cut, in the same array,
+  in order. So an all-token store needs one block per CoT (its longest prefix) and a row
+  `(example_id, cot_id, fraction)` is the range `[cot_tok_start, cut_tok_end)`. No per-cut
+  duplication, and mean/max/last pooling for all five cuts come out of ONE read of the block as
+  running sums and running maxima.
+- **Gate an all-token store against the published last-token store before trusting it, in two
+  steps, and the first step is free.** Step 1 (CPU, no GPU, no model): run
+  `extract_checkpoints.build_cases` and check `token_pos` and `n_prompt_tokens` against the
+  published `index.shard*.parquet`. If those match, prompt rendering and tokenisation are identical
+  and the new store will sit on the same coordinates. It matched on 0 of 2,495 rows across all three
+  datasets. Step 2 (after capture): the last token of each cut's range must EQUAL the published
+  vector. It came out bitwise identical, not merely within tolerance, so there is no tolerance
+  question to argue about. A third free check falls out of stride 1: the number of tokens captured
+  for a cut must equal the published `prefix_tokens`, and that caught nothing but would have caught
+  an off-by-one.
+- **`np.lib.format.open_memmap(..., mode="w+")` writing to a `.part` file and renaming on success is
+  the right way to make a 20 GB shard resumable.** The file is fully allocated up front, so its SIZE
+  tells you nothing about progress; read the log, not `ls`.
+- **The Reasoning Theater recipe (Adam, lr 1e-3, weight decay 0.01, batch 16, 5 epochs) is
+  catastrophic on our features.** A linear head on 3,584 standardised dims with ~630 training rows
+  reaches its best validation loss at epoch 0 and then diverges; test R2 on GPQA entropy is
+  **-0.068** where ridge on the same rows is **+0.282**. This is round 4's finding again from a new
+  direction. Two consequences: (a) the weight-decay grid has to run to **1e4**, not 1e2 - the
+  equivalence is roughly `wd ~ 2 * ridge_alpha / n_train`, so ridge's 1e6 alpha corresponds to
+  wd ~ 3,000; with the grid topping out at 100 every single cell pinned at the edge; (b) any
+  pooling comparison that uses only this recipe is uninformative, so pair it with a closed-form arm.
+- **An attention probe can be read out in closed form, which removes the optimiser from the
+  comparison.** Train the query vector with Adam, then save the attention-POOLED vector per row and
+  fit the project's own ridge on it with the ref_fixed grids and inner CV. This is exactly what R8
+  did for LoRA (`lora_ridge.py`), and that script is 30 lines because `sweep.py` exports
+  `Views` / `run_combo` / `Ridge` / `Logistic` / `fixed_fold_of` - reuse it rather than writing a
+  new ridge.
+- **Train every fold, seed and hyperparameter setting in ONE pass over the token store.** Stack them
+  along a model axis (here 5 folds x 5 seeds x 5 targets x 10 settings = 1,250 models, one shared
+  `X @ W.T`), mask each model's loss to its own training rows, and record its validation loss from
+  the same forward pass. The token store is then read once per epoch no matter how many models are
+  fitted, which turns an I/O-bound job into a compute-bound one. A per-fold input normalisation does
+  not break this: fold it into the parameters (`x' = (x - mu)/sd` gives
+  `q.x' = (q/sd).x - (q/sd).mu`), so X is never rewritten.
+- **A variable you reuse as a local will silently eat a fold-indexed array.** `sd = xs.std(0)` inside
+  the normalisation block overwrote the `(n_folds, n_targets)` target-standardisation array `sd`, and
+  the only symptom was `IndexError: too many indices` 200 lines later at prediction time.
