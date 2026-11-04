@@ -50,13 +50,24 @@ def main():
         "Last token (Adam)":                   (A, "tok_L21_last", "last_adam", "trained"),
         "Mean pool (Adam)":                    (A, "tok_L21_mean", "mean_adam", "trained"),
         "Max pool (Adam)":                     (A, "tok_L21_max", "max_adam", "trained"),
+        "Mean over tokens (Adam, exact control)": (A, "tok_L21_meantok", "meantok_adam", "trained"),
         "Attention pool (Adam)":               (A, "tok_L21_attn", "attn_adam", "trained"),
         "Attention pool (ridge readout)":      (A, "tok_L21_attn", "attn_ridge", "closed form"),
     }
+    # keep only the (feature, probe) pairs that actually have predictions on disk
+    import pandas as pd
+    have = {}
+    for sw in {v[0] for v in SPEC.values()}:
+        fs = sorted((S / sw).glob("preds*.csv"))
+        if fs:
+            d = pd.concat([pd.read_csv(x, usecols=["feature", "probe"]) for x in fs])
+            have[sw] = set(map(tuple, d.drop_duplicates().to_numpy()))
     SPEC = {k: v for k, v in SPEC.items()
-            if list((S / v[0]).glob("preds*.csv"))}
-    REFS = [k for k in ("Last token (ridge, published probe)", "Mean pool (Adam)",
-                        "Mean pool (ridge)") if k in SPEC]
+            if v[0] in have and any(f == v[1] and (v[2] is None or pr == v[2])
+                                    for f, pr in have[v[0]])}
+    REFS = [k for k in ("Last token (ridge, published probe)", "Mean pool (ridge)",
+                        "Mean over tokens (Adam, exact control)", "Mean pool (Adam)")
+            if k in SPEC]
     print("scoring:", list(SPEC))
     MT.main(SPEC=SPEC, REFS=REFS, OUT=out,
             base_label=list(SPEC)[0],

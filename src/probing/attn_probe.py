@@ -70,6 +70,13 @@ SPECS = {
                                  "p_mode", "rem_len_mean", "rem_len_std", "committed_by_here"]),
 }
 FRACS = [0.1, 0.3, 0.5, 0.7, 0.9]
+# Poolings that read the TOKEN store. `meantok` is uniform weighting over exactly the
+# same tokens, standardised exactly the same way, trained by exactly the same optimiser,
+# so `attn` minus `meantok` isolates the LEARNED weighting and nothing else. The
+# precomputed `mean` pooling is NOT that control: its per-dimension normalisation is
+# fitted on already-averaged vectors, whose across-row spread is much smaller than a
+# single token's, so it hands the optimiser a differently scaled problem.
+TOKEN_POOLINGS = ("attn", "meantok")
 
 
 def paths(tag, tok_sub="activations_tokens"):
@@ -234,7 +241,7 @@ class Provider:
     poolings, the whole prefix for `attn`."""
     def __init__(self, pooling, M, tok_dir, pooled_dir):
         self.pooling = pooling
-        if pooling == "attn":
+        if pooling in TOKEN_POOLINGS:
             self.A = {int(s): np.load(tok_dir / f"tokens.shard{int(s):02d}.npy", mmap_mode="r")
                       for s in M["shard"].unique()}
             self.sh = M["shard"].to_numpy().astype(int)
@@ -253,7 +260,7 @@ class Provider:
             self.d = self.X.shape[1]
 
     def get(self, idx):
-        if self.pooling != "attn":
+        if self.pooling not in TOKEN_POOLINGS:
             return self.X[idx], np.arange(len(idx), dtype=np.int64)
         n = self.ntok[idx]
         out = np.empty((int(n.sum()), self.d), np.float16)
@@ -344,7 +351,7 @@ def mode_train(args):
         for f in range(nf):
             cand = np.where(~TE[:, f])[0]
             s = cand[rg.permutation(len(cand))[:min(args.norm_rows, len(cand))]]
-            xs, _ = prov.get(rows[s] if args.pooling == "attn" else s)
+            xs, _ = prov.get(rows[s] if args.pooling in TOKEN_POOLINGS else s)
             if args.feat_norm == "global":
                 nmu[f] = float(xs.astype(np.float32).mean())
                 nsd[f] = float(xs.astype(np.float32).std()) or 1.0
@@ -405,10 +412,13 @@ def mode_train(args):
                 mx = torch.full((S, nm), -1e30, device=dev).index_reduce_(
                     0, seg, lg, "amax", include_self=False)
                 e = torch.exp(lg - mx[seg])
-                den = torch.zeros(S, nm, device=dev).index_add_(0, seg, e)
-                num = torch.zeros(S, nm, device=dev).index_add_(0, seg, e * vl)
-                return num / (den + 1e-8)
-            return vl
+            elif args.pooling == "meantok":
+                e = torch.ones_like(lg)          # uniform weighting over the same tokens
+            else:
+                return vl
+            den = torch.zeros(S, nm, device=dev).index_add_(0, seg, e)
+            num = torch.zeros(S, nm, device=dev).index_add_(0, seg, e * vl)
+            return num / (den + 1e-8)
 
         def split_loss(z, idx):
             """Per-model train loss (for the step) and val loss (for selection)."""
@@ -425,14 +435,14 @@ def mode_train(args):
             return (f(el * mtr), f(mtr.expand_as(el)),
                     f(el.detach() * mva), f(mva.expand_as(el)))
 
-        ntok_rows = (prov.ntok[rows] if args.pooling == "attn"
+        ntok_rows = (prov.ntok[rows] if args.pooling in TOKEN_POOLINGS
                      else np.ones(len(rows), np.int64))
         t0 = time.time()
         for ep in range(args.epochs):
             order = np.random.default_rng(5000 + ep).permutation(len(rows))
             vs = torch.zeros(nm, device=dev); vn = torch.zeros(nm, device=dev)
             for idx in batches(ntok_rows, order, args.batch_size, args.tok_budget):
-                X, seg = prov.get(rows[idx] if args.pooling == "attn" else idx)
+                X, seg = prov.get(rows[idx] if args.pooling in TOKEN_POOLINGS else idx)
                 z = forward(TX(X), torch.as_tensor(seg, device=dev), len(idx),
                             torch.cat(Qs), torch.cat(Vs), torch.cat(QBs), torch.cat(VBs))
                 ltr, ctr, lva, cva = split_loss(z, T(idx, torch.long))
@@ -472,7 +482,7 @@ def mode_train(args):
         nm_full, nm = nm, nm0
         with torch.no_grad():
             for idx in batches(ntok_rows, np.arange(len(rows)), args.batch_size, args.tok_budget):
-                X, seg = prov.get(rows[idx] if args.pooling == "attn" else idx)
+                X, seg = prov.get(rows[idx] if args.pooling in TOKEN_POOLINGS else idx)
                 Z[idx] = forward(TX(X), torch.as_tensor(seg, device=dev), len(idx),
                                  Qb, Vb, QBb, VBb).cpu().numpy()
         nm = nm_full
@@ -573,7 +583,8 @@ def main():
     p.add_argument("--pooled-dir", default=None)
     p.add_argument("--act-out", default=None)
     p.add_argument("--cot-max", type=int, default=None)
-    p.add_argument("--pooling", default="attn", choices=["attn", "mean", "max", "last"])
+    p.add_argument("--pooling", default="attn",
+                   choices=["attn", "meantok", "mean", "max", "last"])
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--fold-seed", type=int, default=0)
     p.add_argument("--seeds", type=int, default=5)

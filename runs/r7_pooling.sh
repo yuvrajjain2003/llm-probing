@@ -82,6 +82,13 @@ attnridge)
   "$PY" src/probing/attn_ridge.py --tag "$TAG" --tok-sub "$TOK_SUB" \
       --states "${R7_STATES:-$SW/states_$VAR}" --out "$SW/adam_$VAR"
   ;;
+attnstats)
+  "$PY" src/probing/r7_attn_stats.py --states "${R7_STATES:?set R7_STATES}"
+  ;;
+loglen)
+  "$PY" src/probing/r7_loglen.py --tag "$TAG" --tok-sub "$TOK_SUB" \
+      --out "$SW/loglen_$VAR" ${R7_STATES:+--states $R7_STATES}
+  ;;
 table)
   NE=""; [ "$TAG" != "gpqa25" ] && NE="--norm-entropy"
   "$PY" src/viz/r7_pooling_table.py --tag "$TAG" --variant "$VAR" $NE
@@ -90,6 +97,6 @@ table)
   "$PY" src/viz/r7_pooling_table.py --tag "$TAG" --variant "$VAR" --suffix _2t \
       --targets answer_entropy_bits_mm rem_len_mean
   ;;
-*) echo "set R7_MODE to pool|ridge|adam|table" >&2; exit 2 ;;
+*) echo "set R7_MODE to pool|ridge|adam|attnridge|attnstats|loglen|table" >&2; exit 2 ;;
 esac
 echo "=== $(date) done ==="

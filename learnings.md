@@ -753,3 +753,52 @@ looks like a failure; use `nanmax` plus an explicit NaN-pattern check).
 - **A variable you reuse as a local will silently eat a fold-indexed array.** `sd = xs.std(0)` inside
   the normalisation block overwrote the `(n_folds, n_targets)` target-standardisation array `sd`, and
   the only symptom was `IndexError: too many indices` 200 lines later at prediction time.
+- 2026-11-04 (item 7, continued): **A "same recipe" pooling comparison is NOT a fair comparison if the
+  input normalisation is fitted at different granularities.** The attention probe standardises raw
+  TOKENS (per-dimension sd of individual token activations), while a probe on a precomputed
+  mean-pooled vector standardises the already-AVERAGED vector, whose across-row spread is much
+  smaller. Same lr, same weight decay, different effective regularisation. Caught it when the
+  attention arm's validation loss at the 10% cut (0.75) came in far better than the mean-pool arm's
+  (1.06) and the only honest explanation was scale, not weighting. The fix is a `meantok` pooling:
+  uniform weights over exactly the same tokens, read through exactly the same normalisation and the
+  same optimiser, so `attn` minus `meantok` isolates the learned weighting and nothing else. A
+  precomputed-mean arm is still worth running, but it answers a different question.
+- 2026-11-04 (item 7): **Pooling over the prefix beats reading the last token, which is what every one
+  of this project's 22 published approaches does.** GPQA pilot rows (982/cut, 198 questions, 5 of 25
+  chains), closed form, identical folds and grids: mean pool minus last token is +0.027 on entropy
+  (n.s., CI upper edge +0.0008), +0.031 on p_mode, +0.055 on `rem_len_mean` and +0.070 on
+  `rem_len_std`, the last three significant. It holds on `log1p` and `winsor99` as well as raw, so it
+  is NOT the raw-scale tail artefact that bit the `prefix_len` comparison. Max pooling is
+  indistinguishable from mean, so the gain is not about averaging specifically. Cheap to adopt: it
+  needs an all-token store but no change to the probe.
+- 2026-11-04 (item 7): **On this task the optimiser dominates the pooling by an order of magnitude,
+  which is a problem for any paper that compares poolings only through a trained probe.** Under the
+  Reasoning Theater recipe all three non-learned poolings land at entropy -0.045 to -0.056 (commitment
+  accuracy 0.49 to 0.51, BELOW the 0.6159 majority baseline), i.e. 0.28 to 0.59 R2 below their own
+  closed-form twins, while differing from each other by at most 0.03 with intervals straddling zero.
+  Batch 256 with 400 epochs, round 4's working batch size, only moves entropy from -0.045 to -0.026.
+  Reasoning Theater's headline (attention 87.98% vs a last-token linear probe 31.85% on the same
+  hyperparameters) has no closed-form or mean-pool control, so its gain cannot be attributed to the
+  pooling rather than to the optimisation. Always pair a trained-probe comparison with a closed-form
+  arm when one exists.
+- 2026-11-04: **`squeue -u $USER` under-reports on Sycamore.** It returned an EMPTY list while
+  `squeue -j <ids>` and `sacct` both showed six pending jobs, and later showed 1 of 7. Two sessions
+  concluded "nothing is running" from it. Use `squeue -j <ids>` or `sacct` to check your own jobs.
+- 2026-11-04: **`VAR=... && nohup cmd &` puts the assignment inside the background subshell**, so a
+  later foreground command in the same Bash call sees the variable unset and silently builds a wrong
+  path (`tail: cannot open '/loglen.log'`). Also `bash -c "... $PY script.py"` with an unset `$PY`
+  tries to EXECUTE the .py and fails with exit 126 "Permission denied", which reads like a filesystem
+  problem and is not. Pass interpreters as absolute literals inside `srun bash -c`.
+- 2026-11-04 (item 7, the answer): **Attention pooling's gain is the gain from using more than one
+  token. The learned weighting adds nothing over a plain average, and on answer entropy it is
+  significantly WORSE.** Closed-form readout of the learned pooled vectors (Adam learns the query on
+  the training folds, the project's own ridge reads it out with the `ref_fixed` grid), GPQA pilot
+  rows, 10% cut: attention minus mean pooling is **-0.0215 [-0.0420, -0.0025] on entropy** and
+  +0.0074 [-0.0070, +0.0211] on `rem_len_mean`. Against the LAST token, which is the comparison the
+  paper actually runs, attention is n.s. on entropy and +0.052 on length, i.e. exactly what mean
+  pooling already delivers. Three independent supports: the learned attention is broad (335.6
+  effective of 487 tokens, last token at 1.6x its uniform share), a synthetic dry run gave 2.9
+  effective of 3, and attention's large apparent win in the TRAINED comparison (0.2676 against
+  uniform-token pooling's 0.2022) disappears entirely under a closed-form readout. **Lesson that
+  generalises: when a learned pooling beats a fixed one under a shared optimiser, read both out in
+  closed form before believing it.**
