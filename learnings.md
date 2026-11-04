@@ -802,3 +802,22 @@ looks like a failure; use `nanmax` plus an explicit NaN-pattern check).
   uniform-token pooling's 0.2022) disappears entirely under a closed-form readout. **Lesson that
   generalises: when a learned pooling beats a fixed one under a shared optimiser, read both out in
   closed form before believing it.**
+- 2026-11-04 (item 7, scheduling): **Size an activation-capture job on PREFILL tokens, not on the
+  tokens you keep.** The GPU prefills prompt plus prefix; a one-layer store keeps only the prefix.
+  On GPQA the two are within 6 percent because the reasoning prefix is ~4,700 tokens against a
+  307-token prompt, but on GlobalOpinionQA and MMLU-Pro at 2 chains the prompt is 191 to 287 tokens
+  against much shorter prefixes and prefill is 1.2 to 1.4 times the captured count, so a
+  captured-token model under-requests walltime. This project's measured rate is **4.87e6 prefill
+  tokens per GPU-hour** at batch 2 with `enforce_eager` and 28-layer capture (5.03e6 prefill tokens
+  in 1 h 02 min on one H100).
+- 2026-11-04: **Over-requested walltime is a real backfill liability but it was NOT the binding
+  constraint here, and the difference is worth testing before claiming credit.** Start estimates for
+  six capture jobs improved from 2026-11-05T12:48 to 2026-11-04T22:18, but submitting the identical
+  job at `-t` 1 h, 2 h and 4 h returned the SAME estimate every time. The gain came from cancelling
+  my own backlog: seven of my GPU jobs were competing with each other for the same partition.
+  **Check your own queue before blaming the scheduler, and `--test-only` at two walltimes is a free
+  controlled experiment.**
+- 2026-11-04: **Put the correctness gate inside the dependency graph, not in a checklist.** The
+  `pool` stage raises `SystemExit` when any row fails the bitwise check and every later stage is
+  `afterok`, so a failed gate blocks that dataset's whole chain automatically. A gate that depends on
+  somebody remembering to look at a log is not a gate, especially under schedule pressure.
