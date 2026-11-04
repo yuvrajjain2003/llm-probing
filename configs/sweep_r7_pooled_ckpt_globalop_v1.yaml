@@ -1,0 +1,39 @@
+# Round 7, item 5: a probe explicitly given the CHECKPOINT as well as the activation (GlobalOpinionQA).
+# sweep.py fits one probe per cut, where `fraction` is constant and so carries no information, so
+# this config uses `pooled: true`: ONE probe over all five cuts at once. Pooled R2 is NOT
+# comparable to any per-cut number in our write-ups (pooled, depth alone carries most of the
+# variance). Report three things together: the pooled R2, the fraction-only pooled floor, and the
+# within-cut R2 recovered from the pooled model's out-of-fold predictions
+# (src/probing/pooled_within_cut.py). Features, grids, folds and seed copy configs/sweep_ref.yaml,
+# so the within-cut numbers are directly comparable to runs/goal2/globalop_v1/sweep/ref_fixed.
+# The 0% cut is NOT included: its activations live in a different store (activations_ckpt_f0).
+act_dir: runs/goal2/globalop_v1/activations_ckpt/global_opinions/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/globalop_v1/global_opinions/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/globalop_v1/sweep/r7_pooled_ckpt
+folds: 5
+fixed_folds: true
+fold_seed: 0
+pooled: true
+# committed_by_here is deliberately NOT run here: pooled, the logistic probe on 62k rows x 3584
+# dims is the single most expensive piece of this item (the published per-cut run took 1,960 s and
+# pooling does not make it cheaper), and pooled ACCURACY on this target is confounded anyway
+# because the committed base rate rises with depth. It is run on GPQA, where it is affordable.
+targets: [answer_entropy_bits_mm, p_mode, rem_len_mean, rem_len_std,
+          answer_entropy_bits_mm_norm]
+
+features:
+  act_L21:         {type: act, layers: [21]}
+  frac_oh:         {type: fraction}                  # one-hot of the cut: the floor
+  frac_num:        {type: fraction, onehot: false}    # scalar control (is depth monotone?)
+  prefix_len:      {type: prefix_len}
+  act_L21_frac:    {type: concat, parts: [act_L21, frac_oh]}
+  prefix_len_frac: {type: concat, parts: [prefix_len, frac_oh]}
+
+probes:            # same grids as sweep_ref.yaml (act grid for act-containing features)
+  ridge_act:     {class: ridge,    grid: {alpha: {logspace: [0, 6, 13]}}}
+  ridge_len:     {class: ridge,    grid: {alpha: {logspace: [-6, 3, 10]}}}
+  logistic:      {class: logistic, grid: {C: {logspace: [-4, 1, 6]}}}
+
+runs:
+  - {features: [frac_oh, frac_num, prefix_len, prefix_len_frac], probes: [ridge_len, logistic]}
+  - {features: [act_L21, act_L21_frac],                          probes: [ridge_act, logistic]}

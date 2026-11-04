@@ -13,7 +13,9 @@ USAGE
 
 CONFIG (YAML; see configs/sweep_baseline.yaml)
     act_dir / run_dir / out_dir, folds, fractions (optional), targets (optional)
-    features: {name: {type: act|prefix_len|tfidf|npy, ...params}}
+    pooled: true    one probe over ALL cuts at once instead of one per cut (default false).
+                    Only then does `fraction` carry information; results.csv records fraction -1.
+    features: {name: {type: act|prefix_len|tfidf|npy|fraction|concat, ...params}}
               any dense feature also takes `pca: k` (PCA fit on each training split only,
               k standardised scores); reuse of a feature name with a different pca needs a new name
     probes:   {name: {class: <registered probe>, grid: {hp: [..]}, fixed: {hp: v}}}
@@ -73,9 +75,16 @@ KEYS = ["example_id", "cot_id", "fraction"]
 
 # -- data (mirrors probe_checkpoints.load, but without reading activations) -----
 
-def load_meta(act_dir: Path, run_dir: Path) -> pd.DataFrame:
+def load_meta(act_dir: Path, run_dir: Path, labels_file: str = "checkpoint_labels.csv",
+              cps_file: Path | None = None) -> pd.DataFrame:
     """One row per (CoT, checkpoint), same inner joins/order as probe_checkpoints.load().
-    Extra columns `_shard`, `_row` locate the activation row in its shard file."""
+    Extra columns `_shard`, `_row` locate the activation row in its shard file.
+
+    labels_file / cps_file support the 0% cut, whose labels live in a separate file
+    (`checkpoint_labels_f0.csv`, one row per question, `cot_id = -1`) and whose checkpoint
+    records live under `_f0_input/raw/`. commitment.csv is keyed on real CoTs (cot_id >= 0), so
+    it cannot join to the 0% rows; when the join is empty the commitment targets are left NaN
+    rather than silently emptying M (they are not defined before any reasoning is emitted)."""
     idxs = []
     for ip in sorted(glob.glob(str(act_dir / "index.shard*.parquet"))):
         i = pd.read_parquet(ip).sort_values("row_idx")
@@ -85,15 +94,24 @@ def load_meta(act_dir: Path, run_dir: Path) -> pd.DataFrame:
     if not idxs:
         raise SystemExit(f"no activation shards under {act_dir}")
     M = pd.concat(idxs, ignore_index=True)
-    lab = pd.read_csv(run_dir / "labels" / "checkpoint_labels.csv")
+    lab = pd.read_csv(run_dir / "labels" / labels_file)
     cm = pd.read_csv(run_dir / "labels" / "commitment.csv")
     M = M.merge(lab, on=KEYS, how="inner")
-    M = M.merge(cm[["example_id", "cot_id", "commitment_fraction"]],
-                on=["example_id", "cot_id"], how="inner")
-    M["committed_by_here"] = (M.commitment_fraction.notna() &
-                              (M.fraction >= M.commitment_fraction)).astype(int)
-    M["will_commit"] = M.commitment_fraction.notna().astype(int)
-    cps = pd.DataFrame([json.loads(l) for l in open(run_dir / "raw" / "checkpoints.jsonl")])
+    Mc = M.merge(cm[["example_id", "cot_id", "commitment_fraction"]],
+                 on=["example_id", "cot_id"], how="inner")
+    if len(Mc):
+        M = Mc
+        M["committed_by_here"] = (M.commitment_fraction.notna() &
+                                  (M.fraction >= M.commitment_fraction)).astype(int)
+        M["will_commit"] = M.commitment_fraction.notna().astype(int)
+    else:
+        print(f"  commitment.csv does not cover these rows ({labels_file}); "
+              "committed_by_here / will_commit left NaN")
+        M["commitment_fraction"] = np.nan
+        M["committed_by_here"] = np.nan
+        M["will_commit"] = np.nan
+    cps = pd.DataFrame([json.loads(l) for l in
+                        open(cps_file or run_dir / "raw" / "checkpoints.jsonl")])
     cps = cps.drop_duplicates(KEYS)
     M = M.merge(cps[KEYS + ["prefix_text"]], on=KEYS, how="left")
     return M.reset_index(drop=True)
@@ -155,6 +173,41 @@ class Act(Feature):
 class PrefixLen(Feature):
     def __init__(self, M, cfg):
         self.raw = M.prefix_tokens.to_numpy(np.float32).reshape(-1, 1)
+
+
+@register_feature("fraction")
+class Fraction(Feature):
+    """The cut point itself as a feature: one-hot over the cuts present in M, or `onehot: false`
+    for the scalar. Only meaningful in a POOLED fit (`pooled: true`); inside a single cut it is
+    constant and contributes nothing."""
+    def __init__(self, M, cfg, onehot=True):
+        f = M.fraction.to_numpy(float)
+        self.raw = (np.column_stack([np.isclose(f, v) for v in np.unique(f)]).astype(np.float32)
+                    if onehot else f.astype(np.float32).reshape(-1, 1))
+
+
+@register_feature("concat")
+class Concat(Feature):
+    """Column-wise stack of other named features (dense only; `parts`: names in cfg["features"]).
+    Each part is prepared by its own class on the training rows, then the blocks are concatenated,
+    so e.g. activations keep their own standardisation and a one-hot keeps its own."""
+    def __init__(self, M, cfg, parts):
+        self.parts = []
+        for name in parts:
+            fc = dict(cfg["features"][name]); ty = fc.pop("type"); k = fc.pop("pca", None)
+            p = FEATURES[ty](M, cfg, **fc) if fc else FEATURES[ty](M, cfg)
+            p.pca = k
+            assert p.raw.dtype != object and p.raw.ndim == 2, f"{name}: concat needs a dense feature"
+            self.parts.append(p)
+        self.cuts = np.cumsum([p.raw.shape[1] for p in self.parts])[:-1]
+        self.raw = np.concatenate([p.raw for p in self.parts], 1)
+        for p in self.parts:                      # the blocks now live in self.raw only
+            p.raw = None
+
+    def prep(self, A_tr, A_te):
+        out = [p.prep(a, b) for p, a, b in zip(self.parts, np.split(A_tr, self.cuts, 1),
+                                               np.split(A_te, self.cuts, 1))]
+        return (np.concatenate([o[0] for o in out], 1), np.concatenate([o[1] for o in out], 1))
 
 
 @register_feature("tfidf")
@@ -501,7 +554,9 @@ def main():
     si, sn = map(int, a.shard.split("/"))
     sfx = "" if sn == 1 else f".shard{si}of{sn}"
 
-    M = load_meta(Path(cfg["act_dir"]), Path(cfg["run_dir"]))
+    M = load_meta(Path(cfg["act_dir"]), Path(cfg["run_dir"]),
+                  cfg.get("labels_file", "checkpoint_labels.csv"),
+                  Path(cfg["cps_file"]) if cfg.get("cps_file") else None)
     if a.max_questions:
         M = M[M.example_id.isin(sorted(M.example_id.unique())[:a.max_questions])].reset_index(drop=True)
     print(f"  {len(M)} (CoT, checkpoint) rows, {M.example_id.nunique()} questions")
@@ -520,10 +575,14 @@ def main():
     k_out = cfg.get("folds", 5)                   # fixed_folds: false = old per-checkpoint GroupKFold
     fold_of = (fixed_fold_of(Path(cfg["run_dir"]), k_out, cfg.get("fold_seed", 0))
                if cfg.get("fixed_folds", True) else None)
-    fractions = cfg.get("fractions") or sorted(M.fraction.unique())
+    pooled = bool(cfg.get("pooled", False))       # one probe over ALL cuts at once
+    fractions = [-1.0] if pooled else (cfg.get("fractions") or sorted(M.fraction.unique()))
     feats, unit = {}, -1
     for frac in fractions:
-        Mf = np.where(np.isclose(M.fraction.to_numpy(), frac))[0]
+        # pooled: every row, and `fraction = -1` in the output marks a pooled fit (preds.csv still
+        # carries each row's real fraction, so a within-cut score can be recovered from them)
+        Mf = (np.arange(len(M)) if pooled
+              else np.where(np.isclose(M.fraction.to_numpy(), frac))[0])
         groups = {}                  # usable-row mask -> targets (grouping as in probe_checkpoints)
         for t in targets:
             ya = M[t].to_numpy(float)[Mf]; ok = ~np.isnan(ya)
