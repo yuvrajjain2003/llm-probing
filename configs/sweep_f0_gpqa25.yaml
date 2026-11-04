@@ -1,0 +1,29 @@
+# The 0% cut: the rendered prompt, before any reasoning is emitted.
+# One row per question (cot_id = -1, fraction = 0.0), so the probe can ONLY read question
+# difficulty: its R2 is a direct measurement of the difficulty floor, not an inference.
+# prefix_len is constant 0 here and prefix_text is empty, so the length confound is gone and
+# the tfidf-on-prefix feature is not runnable (empty vocabulary). prefix_len is kept as a
+# DEGENERATE CONTROL: it must score about 0, which is the point of this cut.
+# Commitment targets are undefined before any reasoning exists (commitment.csv is keyed on
+# real CoTs), so they are left out.
+act_dir: runs/goal2/gpqa25/activations_ckpt_f0/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B
+labels_file: checkpoint_labels_f0.csv
+cps_file: runs/goal2/gpqa25/_f0_input/raw/checkpoints.jsonl
+out_dir: runs/goal2/gpqa25/sweep/f0_probe
+folds: 5
+fixed_folds: true
+fold_seed: 0
+targets: [answer_entropy_bits_mm, p_mode, rem_len_mean, rem_len_std]
+
+features:
+  act_L21:    {type: act, layers: [21]}
+  prefix_len: {type: prefix_len}
+
+probes:
+  ridge_act: {class: ridge, grid: {alpha: {logspace: [0, 6, 13]}}}
+  ridge_len: {class: ridge, grid: {alpha: {logspace: [-6, 3, 10]}}}
+
+runs:
+  - {features: [act_L21],    probes: [ridge_act]}
+  - {features: [prefix_len], probes: [ridge_len]}

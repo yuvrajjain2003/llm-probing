@@ -14,10 +14,15 @@ prefix LAST, so vLLM prefix caching computes the example block once per fold.
 Thinking: default OFF (--thinking off): Qwen3.5/Gemma via chat-template enable_thinking=False, our R1 model by
 prefilling "</think>\n\n". --thinking on: pass 1 thinks until its end-of-thinking token or --think-cap, then pass 2
 appends the end tag and forces the JSON answer (vLLM structured outputs). Answers are always forced JSON.
+
+Other datasets: every dataset-specific value is an env var, defaulting to GPQA-Diamond. For example
+    ICL_RUN_DIR=runs/goal1/mmlupro_v1/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B \
+    ICL_F0_INPUT=runs/goal2/mmlupro_v1/_f0_input ICL_OUT=runs/goal2/mmlupro_v1/icl \
+    ICL_DATASET_NAME=MMLU-Pro ICL_N_CONT="40 or 100" ICL_N_COTS=5 ...
 """
 from __future__ import annotations
 
-import argparse, json, re, sys, time
+import argparse, json, os, re, sys, time
 from pathlib import Path
 
 import numpy as np
@@ -27,9 +32,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from probing.embed_prefixes import load_rows            # question + choices + prefix text
 from probing.sweep import fixed_fold_of
 
-RUN_DIR = Path("runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B")
-F0_INPUT = Path("runs/goal2/gpqa25/_f0_input")
-OUT = Path("runs/goal2/gpqa25/icl")
+# Dataset-specific settings. Defaults = GPQA-Diamond (every published number); override by env var to
+# run another dataset. ICL_N_COTS must match the CoTs per question actually generated (test_rows samples
+# from range(N_COTS)); ICL_N_CONT is the continuation count the labels average over, quoted in the prompt.
+RUN_DIR = Path(os.environ.get("ICL_RUN_DIR", "runs/goal1/gpqa25/gpqa_diamond/DeepSeek-R1-Distill-Qwen-7B"))
+F0_INPUT = Path(os.environ.get("ICL_F0_INPUT", "runs/goal2/gpqa25/_f0_input"))
+OUT = Path(os.environ.get("ICL_OUT", "runs/goal2/gpqa25/icl"))
+DATASET_NAME = os.environ.get("ICL_DATASET_NAME", "GPQA-Diamond")
+N_CONT = os.environ.get("ICL_N_CONT", "25")
+N_COTS = int(os.environ.get("ICL_N_COTS", "25"))
 KEYS = ["example_id", "cot_id", "fraction"]
 TARGETS = ["answer_entropy_bits_mm", "p_mode", "rem_len_mean", "rem_len_std", "committed_by_here"]
 JSON_KEYS = ["answer_entropy_bits", "p_mode", "rem_len_mean", "rem_len_std", "committed"]   # same order
@@ -46,12 +57,12 @@ YARN = {"text_config": {"rope_parameters": {"mrope_interleaved": True, "mrope_se
 ANSWER_BUDGET = 128
 
 INSTR = """You predict how a reasoning model's answer to a multiple-choice question will develop.
-A small reasoning model was given a GPQA-Diamond question and began writing a step-by-step reasoning chain. Each item shows the question with its answer choices, then the part of the chain written so far (the "prefix"; empty at checkpoint 0%), and the checkpoint (how far into the full chain the prefix ends). From the end of the prefix the model was continued 25 times independently until it finished. Five numbers were measured over those 25 continuations:
-- answer_entropy_bits: entropy in bits (Miller-Madow corrected) of the distribution of final answers; 0 means all 25 agree.
-- p_mode: fraction of the 25 continuations that give the most common final answer.
-- rem_len_mean, rem_len_std: mean and standard deviation, over the 25 continuations, of the number of further reasoning tokens written before the model finishes thinking.
+A small reasoning model was given a {ds} question and began writing a step-by-step reasoning chain. Each item shows the question with its answer choices, then the part of the chain written so far (the "prefix"; empty at checkpoint 0%), and the checkpoint (how far into the full chain the prefix ends). From the end of the prefix the model was continued {n} times independently until it finished. Five numbers were measured over those {n} continuations:
+- answer_entropy_bits: entropy in bits (Miller-Madow corrected) of the distribution of final answers; 0 means all {n} agree.
+- p_mode: fraction of the {n} continuations that give the most common final answer.
+- rem_len_mean, rem_len_std: mean and standard deviation, over the {n} continuations, of the number of further reasoning tokens written before the model finishes thinking.
 - committed: 1 if, at this checkpoint and every later one (10%, 30%, 50%, 70%, 90%), the most common answer is the same and at least 80% of continuations give it; otherwise 0 (always 0 at checkpoint 0%).
-"""
+""".format(ds=DATASET_NAME, n=N_CONT)
 INSTR_EX = "Labelled examples follow, then one query item. "
 INSTR_SHORT = ("In the examples the reasoning is shortened to its last few sentences, marked [...], "
                "while the question and choices are complete; the query item is complete throughout. ")
@@ -128,12 +139,14 @@ def example_order(d: pd.DataFrame, fold: int, n: int, seed: int = 1000) -> list[
 
 
 def test_rows(d: pd.DataFrame, n_cot: int, seed: int = 7) -> pd.DataFrame:
-    """n_cot = 0: all rows. Else n_cot random CoTs per question (all their checkpoints) + the 0% row."""
+    """n_cot = 0: all rows. Else n_cot random CoTs per question (all their checkpoints) + the 0% row.
+    Samples from range(N_COTS), so ICL_N_COTS must match the run's CoTs per question (25 on GPQA, 5 on
+    mmlupro_v1 / globalop_v1); too large and most questions keep only their 0% row."""
     if n_cot == 0:
         return d
     keep = {}
     for q in d.example_id.unique():
-        keep[q] = set(np.random.default_rng(seed + int(q)).permutation(25)[:n_cot].tolist()) | {-1}
+        keep[q] = set(np.random.default_rng(seed + int(q)).permutation(N_COTS)[:n_cot].tolist()) | {-1}
     return d[[c in keep[q] for q, c in zip(d.example_id, d.cot_id)]]
 
 

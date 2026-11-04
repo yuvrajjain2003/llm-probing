@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from round2_metrics import REG, TARGETS, KEYS, B, SEED
 
 S = Path("runs/goal2/gpqa25/sweep"); OUT = S / "_master"; OUT.mkdir(exist_ok=True)
+ICL_DIR = Path("runs/goal2/gpqa25/icl")   # repointed by wrappers for other datasets
 
 # label -> (sweep, feature, probe or None = the only one for that target, family)
 SPEC = {
@@ -51,7 +52,7 @@ REFS = ["Our model L21 (ridge)", "TF-IDF on prefix"]
 
 
 def preds_for(sweep, feat, probe, t):
-    d = (pd.read_csv(Path("runs/goal2/gpqa25/icl") / f"preds_{sweep[4:]}.csv") if sweep.startswith("icl:")
+    d = (pd.read_csv(ICL_DIR / f"preds_{sweep[4:]}.csv") if sweep.startswith("icl:")
          else pd.concat([pd.read_csv(x) for x in sorted((S / sweep).glob("preds*.csv"))]))
     d = d[(d.feature == feat) & (d.target == t)]
     if probe is not None:

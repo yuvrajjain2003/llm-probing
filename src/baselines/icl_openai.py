@@ -7,10 +7,19 @@ subset of its test rows (20 per checkpoint 10..90%, 4 per fold). Two versions:
 Answers are forced JSON (structured outputs). Resumable: one JSON line per finished call in raw/<tag>.jsonl.
 Key read from ~/.frontier_api_key (never printed).
 
+    $PY src/baselines/icl_openai.py plan  --k 0 10 --version ckpt blind --full   # NO API calls: exact
+        token counts, dry-run prompts and a cost estimate. Input tokens are exact for gpt-6-luna:
+        measured on 2,554 stored calls, input_tokens == tiktoken o200k_base + 63 every time.
     $PY src/baselines/icl_openai.py run   --k 10 50 100 --version ckpt nockpt
     $PY src/baselines/icl_openai.py score --k 10 50 100 --version ckpt nockpt
     --full runs all of icl_predict's test rows (1 CoT/question incl. the 0% rows, ~1,188) instead of
     the 100-row subset, so the scores are directly comparable to the local-model ICL runs.
+    --n-questions N keeps a fold-balanced subsample of N questions: --full is 1,178 rows on GPQA but
+    ~15,000 on mmlupro_v1 / globalop_v1.
+
+Dataset paths/labels come from icl_predict's env vars (see its docstring). The subject-mix matching in
+subset50 / subset10 additionally reads ICL_DOMAIN_CSV + ICL_DOMAIN_COL, and cmd_compare reads the probe
+reference from ICL_REF_SWEEP. All default to the GPQA values.
 """
 from __future__ import annotations
 
@@ -50,7 +59,21 @@ def subset(d: pd.DataFrame, small: bool = False, seed: int = 11) -> pd.DataFrame
     return T.sort_values(["fold"] + ip.KEYS)
 
 
-DOMAIN_CSV = Path("data/gpqa_diamond/csv/train.csv")   # row i = example_id i (checked: same question text)
+DOMAIN_CSV = Path(os.environ.get("ICL_DOMAIN_CSV", "data/gpqa_diamond/csv/train.csv"))
+DOMAIN_COL = os.environ.get("ICL_DOMAIN_COL", "High-level domain")
+REF_SWEEP = Path(os.environ.get("ICL_REF_SWEEP", "runs/goal2/gpqa25/sweep/ref_fixed"))
+
+
+def domains() -> pd.Series:
+    """example_id -> subject/domain, for the subject-mix matching in subset50 / subset10.
+    GPQA default: data/gpqa_diamond/csv/train.csv, row i = example_id i (checked: same question text).
+    Other datasets: point ICL_DOMAIN_CSV at RUN_DIR/raw/examples.csv (which HAS an example_id column, so
+    the index is set from it) and ICL_DOMAIN_COL at `category` (MMLU-Pro) or `source` (GlobalOpinionQA)."""
+    t = pd.read_csv(DOMAIN_CSV)
+    s = t[DOMAIN_COL]
+    if "example_id" in t.columns:
+        s = s.set_axis(t.example_id.to_numpy())
+    return s
 
 
 def subset50(d: pd.DataFrame, draws: int = 5000, seed: int = 5) -> pd.DataFrame:
@@ -59,7 +82,7 @@ def subset50(d: pd.DataFrame, draws: int = 5000, seed: int = 5) -> pd.DataFrame:
     distribution (mean, sd, quartiles) and subject mix (Chemistry/Physics/Biology) are closest to all
     10-90% rows. Uses labels and metadata only, never predictions."""
     S = subset(d, True)
-    dom = pd.read_csv(DOMAIN_CSV)["High-level domain"]
+    dom = domains()
     T = ip.test_rows(d, 1); T = T[(T.fraction > 0) & ~T.example_id.isin(S.example_id)]
     pop = d[d.fraction > 0]
     stats = lambda x: np.concatenate([[x[t].mean(), x[t].std()] + list(x[t].quantile([.25, .5, .75])) for t in ip.TARGETS])
@@ -92,7 +115,7 @@ def subset10(d: pd.DataFrame) -> pd.DataFrame:
     the one whose targets (mean, sd, quartiles) and subject mix are closest to all 10-90% rows (as subset50)."""
     import itertools
     S = subset(d, True).reset_index(drop=True)
-    dom = pd.read_csv(DOMAIN_CSV)["High-level domain"]; p_dom = dom.value_counts(normalize=True)
+    dom = domains(); p_dom = dom.value_counts(normalize=True)
     pop = d[d.fraction > 0]; sd = np.repeat(pop[ip.TARGETS].std().to_numpy(), 5)
     stats = lambda x: np.concatenate([[x[t].mean(), x[t].std()] + list(x[t].quantile([.25, .5, .75])) for t in ip.TARGETS])
     ref = stats(pop); best, best_gap = None, np.inf
@@ -132,16 +155,98 @@ def cost(u) -> float:
     return ((u["input_tokens"] - c) * PRICE["inp"] + c * PRICE["cached"] + u["output_tokens"] * PRICE["out"]) / 1e6
 
 
+def pick_questions(T: pd.DataFrame, n: int, seed: int = 3) -> pd.DataFrame:
+    """Fold-balanced random subsample of n questions, keeping ALL their rows. n=0 (default) = no-op, so
+    GPQA behaviour is unchanged. Needed because `--full` is 1,178 rows on GPQA (198 questions) but
+    ~15,000 on mmlupro_v1 / globalop_v1 (~2,500 questions)."""
+    if not n:
+        return T
+    nq = T.example_id.nunique()
+    keep = []
+    for f in sorted(T.fold.unique()):
+        q = np.sort(T.loc[T.fold == f, "example_id"].unique())
+        keep += list(np.random.default_rng(seed + int(f)).permutation(q)[:int(round(n * len(q) / nq))])
+    return T[T.example_id.isin(set(keep))]
+
+
+def row_set(a, d: pd.DataFrame) -> pd.DataFrame:
+    T = (ip.test_rows(d, 1).sort_values(["fold"] + ip.KEYS) if a.full else
+         subset50(d) if a.n50 else subset10(d) if a.n10 else subset(d, a.small))
+    T = pick_questions(T, getattr(a, "n_questions", 0))
+    return T.head(a.max_rows) if a.max_rows else T
+
+
+# ---------------------------------------------------------------- plan (no API calls)
+# Measured 2026-11-01 on 2,554 stored gpt-6-luna calls (ckpt k0/k10/k50, blind k0; prompts rebuilt by
+# `prompt()`): the API's input_tokens == tiktoken o200k_base tokens + 63, EXACTLY, every call
+# (max residual 0). So an offline cost estimate for this model is exact on the input side.
+TOK_OVERHEAD = 63
+CACHE_BLOCK = 128          # cached_tokens came back as a multiple of 128
+CACHE_FLOOR = 1024         # prompts below this never cache (hence k=0 caches nothing)
+CACHE_WRITE = 1.25         # cache writes bill at 1.25x the input rate and are NOT in `usage`
+OUT_TOKENS = {0: 2577, 10: 1867, 50: 1799}   # measured mean output tokens/call, GPQA ckpt runs
+
+
+def cmd_plan(a):
+    import tiktoken
+    enc = tiktoken.get_encoding("o200k_base")
+    d = ip.load_data()
+    T = row_set(a, d)
+    print(f"rows {len(T)}, questions {T.example_id.nunique()}, per fold {T.fold.value_counts().sort_index().to_dict()}, "
+          f"per checkpoint {T.fraction.value_counts().sort_index().to_dict()}")
+    ip.OUT.mkdir(parents=True, exist_ok=True)
+    nq = {}                                  # (fold, version, row key) -> query tokens; cached per version
+    rows, total = [], 0.0
+    for v in a.version:
+        for k in a.k:
+            tag = tag_of(v, k)
+            n_in = n_cached = n_calls = 0
+            mx = 0
+            for fold in range(5):
+                ex = ip.example_order(d, fold, k)
+                Tf = T[T.fold == fold]
+                if not len(Tf):
+                    continue
+                block = prompt(d, ex, Tf.iloc[0], v)[0]
+                nb = len(enc.encode(block))
+                if v not in nq:              # the query block does not depend on k, only on version
+                    nq[v] = {key: len(enc.encode(prompt(d, [], r, v)[1]))
+                             for key, r in zip(T.index, T.itertuples())}
+                q = np.array([nq[v][i] for i in Tf.index])
+                cache = (nb // CACHE_BLOCK) * CACHE_BLOCK if nb >= CACHE_FLOOR else 0
+                n_in += int((nb + q + TOK_OVERHEAD).sum())
+                n_cached += cache * (len(Tf) - 1)        # first call of a fold is deliberately uncached
+                n_calls += len(Tf); mx = max(mx, int(nb + q.max() + TOK_OVERHEAD))
+                if fold == 0:
+                    bl, ql = prompt(d, ex, Tf.iloc[0], v)
+                    (ip.OUT / f"dryprompt_{tag}_fold0.txt").write_text(bl + ql)
+            per_out = a.out_tokens or OUT_TOKENS.get(k, OUT_TOKENS[0])
+            n_out = n_calls * per_out
+            c = cost(dict(input_tokens=n_in, cached_tokens=n_cached, output_tokens=n_out))
+            # upper bound on the untracked cache-write surcharge: charge every UNCACHED input token at
+            # 1.25x instead of 1x. Only bites when something is cached at all (k > 0).
+            c_full = c + (CACHE_WRITE - 1) * ((n_in - n_cached) if n_cached else 0) * PRICE["inp"] / 1e6
+            rows.append(dict(tag=tag, version=v, k=k, calls=n_calls, input_tokens=n_in, cached_tokens=n_cached,
+                             output_tokens=n_out, max_prompt_tokens=mx, usd_tracked=round(c, 2),
+                             usd_with_cache_write=round(c_full, 2)))
+            total += c_full
+            print(f"{tag}: {n_calls} calls, input {n_in/1e6:.2f}M (cached {n_cached/1e6:.2f}M), "
+                  f"output {n_out/1e6:.2f}M (assumed {per_out}/call), "
+                  f"longest prompt {mx} tokens, ${c:.2f} tracked / ${c_full:.2f} incl. cache writes")
+    R = pd.DataFrame(rows)
+    name = f"plan_{NAME}_{EFFORT}_{'-'.join(a.version)}_k{'-'.join(map(str, a.k))}_q{a.n_questions}.csv"
+    R.to_csv(ip.OUT / name, index=False)
+    print(f"\nTOTAL ${total:.2f} (incl. cache-write surcharge) -> {ip.OUT}/{name} ; "
+          f"dry-run prompts in {ip.OUT}/dryprompt_*_fold0.txt")
+
+
 def cmd_run(a):
     from openai import OpenAI, BadRequestError
     client = OpenAI(api_key=(Path.home() / ".frontier_api_key").read_text().strip(), timeout=3600, max_retries=5)
     d = ip.load_data()
-    T = (ip.test_rows(d, 1).sort_values(["fold"] + ip.KEYS) if a.full else
-         subset50(d) if a.n50 else subset10(d) if a.n10 else subset(d, a.small))
-    if a.max_rows:
-        T = T.head(a.max_rows)
+    T = row_set(a, d)
     out = ip.OUT / "raw"; out.mkdir(parents=True, exist_ok=True)
-    spent, misses = 0.0, 0
+    spent, misses, errs = 0.0, 0, 0
     for v in a.version:
         for k in a.k:
             tag = tag_of(v, k) + ('_smoke' if a.max_rows else '')
@@ -149,7 +254,7 @@ def cmd_run(a):
             done = {tuple(json.loads(l)["key"]) for l in f.open()} if f.exists() else set()
             spent += sum(json.loads(l)["cost"] for l in f.open()) if f.exists() else 0
             for fold in range(5):
-                misses = 0        # per fold: a broken cache config misses every call, transients are isolated
+                misses = errs = 0  # per fold: a broken cache config / a real outage hits every call, transients are isolated
                 ex = ip.example_order(d, fold, k)
                 rows = [r for r in T[T.fold == fold].itertuples()
                         if (int(r.example_id), int(r.cot_id), round(r.fraction, 6)) not in done]
@@ -166,10 +271,15 @@ def cmd_run(a):
                             extra_body={"prompt_cache_options": {"mode": "explicit"}},
                             text={"format": {"type": "json_schema", "name": "values", "schema": SCHEMA, "strict": True}},
                             max_output_tokens=a.max_output, prompt_cache_key=f"{tag}_f{fold}")
-                    except BadRequestError as e:   # e.g. GPQA biology questions hit OpenAI's bio_policy filter
+                    except Exception as e:   # BadRequestError: GPQA/MMLU-Pro biology hits OpenAI's bio_policy
+                        # filter. Anything else: one dead row, not a dead run (2026-10-26: an uncaught
+                        # exception escaped pool.map and killed the 5 configs queued behind it). A real
+                        # outage still stops the run, via the --max-errors guard below.
                         return dict(key=[int(r.example_id), int(r.cot_id), round(r.fraction, 6)], fold=fold,
-                                    status="refused", output="", usage=dict(input_tokens=0, cached_tokens=0,
-                                    output_tokens=0, reasoning_tokens=0), cost=0.0, refusal=str(e)[:200],
+                                    status="refused" if isinstance(e, BadRequestError) else "error", output="",
+                                    usage=dict(input_tokens=0, cached_tokens=0, output_tokens=0,
+                                    reasoning_tokens=0), cost=0.0,
+                                    refusal=f"{type(e).__name__}: {str(e)[:200]}",
                                     seconds=round(time.time() - t0, 1))
                     u = resp.usage
                     us = dict(input_tokens=u.input_tokens, cached_tokens=u.input_tokens_details.cached_tokens,
@@ -186,11 +296,21 @@ def cmd_run(a):
                                 print(f"{tag} fold {fold} {res['key']} {res['status']} in {res['usage']['input_tokens']}"
                                       f" cached {res['usage']['cached_tokens']} reason {res['usage']['reasoning_tokens']}"
                                       f" ${res['cost']:.2f} {res['seconds']}s | total ${spent:.2f}", flush=True)
-                                if k and not first and res["status"] != "refused" and \
-                                        res["usage"]["cached_tokens"] < res["usage"]["input_tokens"] / 2:
-                                    misses += 1   # k=0 exempt: no example block, prompt below the 1024-token cache floor
-                                if spent > a.budget or misses >= 2:   # in-flight calls (<= workers - 1) still finish
-                                    print(f"stop: spent ${spent:.2f} (budget ${a.budget}), cache misses {misses}", flush=True); fh.flush(); os._exit(1)
+                                errs += res["status"] == "error"
+                                if k and not first and res["status"] not in ("refused", "error") and \
+                                        res["usage"]["cached_tokens"] == 0:
+                                    misses += 1
+                                    # The guard exists to catch a BROKEN CACHE CONFIG, which returns
+                                    # cached 0 on every call. k=0 is exempt (no example block, prompt
+                                    # below OpenAI's 1024-token cache floor). It used to test
+                                    # cached < input/2, which MMLU-Pro trips honestly: its longest 90%
+                                    # prefixes are bigger than a 10-example block, so 1-4 calls per fold
+                                    # sit at 0.44-0.48 with the cache working perfectly (measured
+                                    # 2026-11-01). GlobalOpinionQA's worst fold is 0.59.
+                                if spent > a.budget or misses >= a.max_cache_misses or errs >= a.max_errors:   # in-flight calls (<= workers - 1) still finish
+                                    print(f"stop: spent ${spent:.2f} (budget ${a.budget}), cache misses {misses} "
+                                          f"(max {a.max_cache_misses}), errors {errs} (max {a.max_errors})",
+                                          flush=True); fh.flush(); os._exit(1)
 
 
 def cmd_score(a):
@@ -210,7 +330,7 @@ def cmd_compare(a):
     """Pooled over the 20 rows (4 per checkpoint is too few per checkpoint): raw ICL predictions vs probes and
     earlier ICL runs on the SAME rows. 95% CI: question bootstrap (2000 draws), paired difference vs ridge."""
     T = (subset if a.n100 else subset10 if a.n10 else lambda d: subset(d, True))(ip.load_data())[ip.KEYS]
-    S = Path("runs/goal2/gpqa25/sweep/ref_fixed")
+    S = REF_SWEEP
     P = pd.concat([pd.read_csv(f) for f in S.glob("preds*.csv")])
     src = {"ridge L21 (ours)": (P, "act_L21", {"ridge_act", "logistic"}), "TF-IDF": (P, "tfidf", {"ridge_text", "logistic"}),
            "prefix_len": (P, "prefix_len", {"ridge_len", "logistic"})}
@@ -259,7 +379,7 @@ def cmd_compare(a):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["run", "score", "compare"])
+    p.add_argument("cmd", choices=["plan", "run", "score", "compare"])
     p.add_argument("--k", type=int, nargs="+", default=[10, 50, 100])
     p.add_argument("--version", nargs="+", choices=["ckpt", "nockpt", "blind"], default=["ckpt", "nockpt"])
     p.add_argument("--small", action="store_true", help="20-row subset")
@@ -272,6 +392,15 @@ if __name__ == "__main__":
     p.add_argument("--max-output", type=int, default=100000)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--budget", type=float, default=1500, help="stop when estimated spend (all tags) exceeds this ($)")
+    p.add_argument("--n-questions", type=int, default=0,
+                   help="fold-balanced subsample of N questions (all their rows); 0 = every question")
+    p.add_argument("--out-tokens", type=int, default=0, help="plan: output tokens/call (0 = measured GPQA means)")
+    p.add_argument("--max-errors", type=int, default=20,
+                   help="stop if this many non-policy API errors happen inside one fold (reset per fold)")
+    p.add_argument("--max-cache-misses", type=int, default=5,
+                   help="stop if this many k>0 calls return cached 0 inside one fold (reset per fold); a "
+                        "broken cache config misses every call, so 5 fires at once, while the ~1-in-3000 "
+                        "transient misses seen on 2026-10-26 cannot accumulate")
     a = p.parse_args()
     MODEL = a.model; NAME, PRICE = "gpt6_" + MODEL.split("-")[-1], PRICES[MODEL]
-    {"run": cmd_run, "score": cmd_score, "compare": cmd_compare}[a.cmd](a)
+    {"plan": cmd_plan, "run": cmd_run, "score": cmd_score, "compare": cmd_compare}[a.cmd](a)

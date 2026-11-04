@@ -1,0 +1,22 @@
+# Deeper logistic C grid (down to 1e-8) for committed_by_here on mmlupro_v1 (mmlu_pro).
+# Mirrors configs/sweep_ref_logistic_deep.yaml. Separate out_dir and a distinct probe NAME
+# because sweep.py skips combos by (feature, probe name, fraction, target).
+act_dir: runs/goal2/mmlupro_v1/activations_ckpt/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B
+run_dir: runs/goal1/mmlupro_v1/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/mmlupro_v1/sweep/ref_logistic_deep
+folds: 5
+fixed_folds: true
+fold_seed: 0
+fractions: [0.1, 0.3, 0.5, 0.7, 0.9]
+targets: [committed_by_here]
+
+features:
+  act_L21:    {type: act, layers: [21]}
+  prefix_len: {type: prefix_len}
+  tfidf:      {type: tfidf}
+
+probes:
+  logistic_deep: {class: logistic, grid: {C: {logspace: [-8, 1, 10]}}}
+
+runs:
+  - {features: [act_L21, prefix_len, tfidf], probes: [logistic_deep]}
