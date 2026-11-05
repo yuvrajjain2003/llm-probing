@@ -1,0 +1,21 @@
+# Gate follow-up: is MY store numerically equivalent to the PUBLISHED one for the
+# purpose of this item? Two features that SHOULD be the same vector:
+#   act_L21   the published activations_ckpt store (ground truth)
+#   mystore   pooled_last.npy from my all-token capture
+# Identical rows, folds, fold_seed and alpha grid. If the test scores agree, the
+# numerical difference the gate flagged is immaterial to every downstream result.
+act_dir: runs/goal2/mmlupro_v1/sweep/r7_pooling/_act_c2
+run_dir: runs/goal1/mmlupro_v1/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B
+out_dir: runs/goal2/mmlupro_v1/sweep/r7_pooling/_equiv
+folds: 5
+fixed_folds: true
+fold_seed: 0
+fractions: [0.1, 0.3, 0.5, 0.7, 0.9]
+targets: [answer_entropy_bits_mm, rem_len_mean]
+features:
+  act_L21: {type: act, layers: [21]}
+  mystore: {type: npy, path: /work/users/y/u/yuvraj/llm-probing/runs/goal2/mmlupro_v1/activations_tokens_c2/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B/pooled_last.npy, keys: /work/users/y/u/yuvraj/llm-probing/runs/goal2/mmlupro_v1/activations_tokens_c2/mmlu_pro/DeepSeek-R1-Distill-Qwen-7B/pooled_keys.parquet}
+probes:
+  ridge_act: {class: ridge, grid: {alpha: {logspace: [0, 6, 13]}}}
+runs:
+  - {features: [act_L21, mystore], probes: [ridge_act]}

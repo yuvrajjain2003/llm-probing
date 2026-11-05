@@ -821,3 +821,53 @@ looks like a failure; use `nanmax` plus an explicit NaN-pattern check).
   `pool` stage raises `SystemExit` when any row fails the bitwise check and every later stage is
   `afterok`, so a failed gate blocks that dataset's whole chain automatically. A gate that depends on
   somebody remembering to look at a log is not a gate, especially under schedule pressure.
+
+## 2026-11-04 - round 7 item 7: the gate fired, and what it caught
+
+**The gate failing on two of three datasets was the system working, and the diagnosis is worth the
+method, not just the answer.** globalop_v1: 24,949 of 25,449 rows bitwise identical, 8 rows below
+cosine 0.9999, worst 0.999879. mmlupro_v1: 16,509 of 24,751 bitwise, 335 rows below, worst 0.999673.
+GPQA passed 4,910 of 4,910 bitwise.
+
+- **The decisive test for misalignment is to compare against your own NEIGHBOURING tokens, not
+  against a tolerance.** Adjacent reasoning tokens sit at cosine 0.45 to 0.68 with the published
+  vector while the token the gate picked sits at 0.99999. So a one-token position error would be
+  unmissable, and a neighbour matched better in **0 of 1,200 sampled rows across both datasets,
+  including 0 of the 7 sampled failing rows**. That single table settles misalignment in a way no
+  threshold argument can.
+- **An absolute diff is uninterpretable without the activation scale, and the right denominator is
+  the channel, not the vector.** `max_abs_diff` 3.0 and 4.0 sound alarming against a per-row RMS of
+  6.4, but these are layer-21 states with massive-activation channels whose per-row maximum is 199
+  to 292, so 3 to 4 is 1.4 to 1.8 percent of the largest value in its own row. Convert to a
+  scale-free number before quoting anything: cosine 0.999879 and 0.999673 are relative L2 errors of
+  **1.56 and 2.56 percent**, angles of 0.89 and 1.47 degrees. Small, but NOT "the last few bits",
+  and it should not be described that way.
+- **Differences concentrating in a few CHANNELS is a rounding signature; spreading over the vector
+  would not be.** The maximum-diff dimension was one of only 6 distinct dimensions on globalop and
+  27 of 3,584 on mmlupro, led by dimensions 0, 458, 2570 and 32.
+- **Failing rows having LONGER prefixes is evidence FOR the benign reading, not against it**
+  (median 739 against 444 reasoning tokens on mmlupro): more tokens means more accumulated rounding.
+  A prefix-boundary bug would predict the opposite, and would cluster by cut. Fail rates by cut were
+  flat (0/0/3/2/1 of about 120 sampled each).
+- **Check for duplicate keys in the reference index before blaming anything else.** `load_meta`
+  dedups, so a reference store with two rows per key would silently compare against an arbitrary
+  one. Measured: 0 duplicates in globalop's 63,684 published rows, so that hypothesis died cheaply.
+- **The only test that decides whether a numerical difference MATTERS is to run the probe both ways.**
+  A tolerance is an argument; refitting ridge on your store and on the reference store with identical
+  rows, folds and grid and comparing test R2 is a measurement. Do that before relaxing any threshold,
+  and if the scores agree, the honest claim is "numerically equivalent, not bitwise identical", which
+  is weaker than bitwise and has to be labelled as such wherever the numbers appear.
+- **Leading hypothesis for the cause, with one control already in hand**: I captured GPQA at
+  `--batch-size 2` matching the published default and used `--batch-size 4` on the new datasets.
+  Batch size changes GEMM and varlen-attention shapes and hence reduction order. The useful control
+  is that GPQA's published store has 32 shards against my 8, so batch COMPOSITION differed
+  completely and it was still bitwise identical, which points at batch SIZE rather than composition.
+  Confirming with a single-shard batch-2 recapture before calling it.
+- 2026-11-04 (item 7): **A "free" test can be free and still worthless. Check its power before
+  running it, not after.** To test whether `--batch-size` caused the bit differences I reconstructed
+  each case's position in the capture order and cross-tabulated bitwise agreement against the batch
+  size it landed in, with no GPU. It reconstructed all 25,449 rows correctly and then told me
+  nothing: 25,359 rows were in batches of 4 and only **50** in batches of 2, because each of 16
+  shards contributes at most one partial final batch. At a baseline bitwise rate of 0.9804, 50 rows
+  distinguish "about one failure" from "zero", which is no test at all. One minute of arithmetic on
+  the expected cell counts would have shown that before the job was submitted.
