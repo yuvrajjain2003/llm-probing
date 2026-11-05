@@ -871,3 +871,21 @@ GPQA passed 4,910 of 4,910 bitwise.
   shards contributes at most one partial final batch. At a baseline bitwise rate of 0.9804, 50 rows
   distinguish "about one failure" from "zero", which is no test at all. One minute of arithmetic on
   the expected cell counts would have shown that before the job was submitted.
+- 2026-11-04 (item 7): **The materiality measurement is settled and the numbers are worth keeping as a
+  reference for "how much does fp16 capture nondeterminism actually matter".** Ridge on a store with
+  bit differences against the reference store, identical rows, folds and alpha grid, mean over five
+  cuts: globalop_v1 entropy 0.191020 against 0.191007 (-1.3e-5) and `rem_len_mean` 0.350771 against
+  0.350774 (+3e-6); mmlupro_v1 entropy 0.386160 against 0.386141 (-1.9e-5) and 0.693232 against
+  0.693206 (-2.6e-5). Worst single cell 9.9e-5 and 1.5e-4. **Two diagnostics worth copying**: the
+  sign ALTERNATES across cells (6+/4- and 5+/5-), so it is noise and not a systematic degradation,
+  which a structural fault would not do; and the per-cut differences partly CANCEL in the mean, which
+  is why the mean-over-cuts figure is an order of magnitude smaller than the worst cell. Quote the
+  mean if that is what you report, and say which you are quoting.
+- 2026-11-04 (item 7): **An equivalence run against a published reference doubles as a free validity
+  check on your own row set, so look at the absolute levels too, not just the difference.** Fitting
+  the published-store ridge on my 2-chain rows reproduced the P1 5-chain reference with exactly the
+  attenuation the deviation predicts AND the right shape: entropy fell 13 percent (globalop) and 6
+  percent (mmlupro) while `rem_len_mean` fell only 2 percent on both. That asymmetry is predicted,
+  because entropy is estimated directly from the distribution over rollouts and so degrades fastest
+  when chains per question drop, whereas remaining length is a mean over chains and is well behaved
+  at small counts. Getting the predicted shape, not just a small number, is what makes it a check.
