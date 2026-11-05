@@ -1,0 +1,10 @@
+<section id="bands-method" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:36px">
+<h2 style="font-size:60px;font-weight:600">Why MSE rather than R squared inside a band</h2>
+<ul style="font-size:31px;line-height:1.45;display:flex;flex-direction:column;gap:24px">
+<li>R squared inside a band is scored against <b>that band's own variance</b>. Where the truth is nearly constant, the denominator collapses and the number goes sharply negative even when the predictions are close.</li>
+<li>That is exactly what produced the two embarrassing cells: GPQA very easy at <b>-1.090</b> and MMLU-Pro easy at <b>-1.049</b>.</li>
+<li>Mean squared error has the same units in every band, so the bands can be read against each other.</li>
+<li>Each graph carries two reference lines: <b>guessing that band's own average</b>, and <b>guessing the whole set's average</b>. Below the first line means the probe is adding something inside the band.</li>
+</ul>
+<aside>Both the as-stored and the offset-recentred R squared columns are kept in the underlying CSVs, so nothing was thrown away in the switch. The bottom row of each figure is the offset-free view, a plain within-band correlation, which is the most forgiving reading and is included so the MSE panel is not the only evidence.</aside>
+</section>

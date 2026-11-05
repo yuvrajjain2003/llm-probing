@@ -1,0 +1,11 @@
+<section id="whats-new" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:44px">
+<h2 style="font-size:60px;font-weight:600">What is new since the last meeting</h2>
+<ul style="font-size:34px;line-height:1.45;display:flex;flex-direction:column;gap:26px">
+<li>Two new datasets collected and verified. MMLU-Pro (2,500 questions) and GlobalOpinionQA (2,555), against GPQA's 198.</li>
+<li>The probe reference rerun on both. MMLU-Pro beats GPQA on all five targets.</li>
+<li>The frontier model comparison rerun on both, with confidence intervals. Its tie with our probe does not survive.</li>
+<li>Question difficulty isolated as a confounder on GPQA and MMLU-Pro, and the result does not replicate the way we expected.</li>
+<li>The length targets rechecked on a log scale. This overturns the standing objection that we are only counting tokens.</li>
+</ul>
+<aside>Everything here is scored within each cut point and then averaged, never pooled across depth. All intervals are 95% question-level bootstrap, 2,000 draws.</aside>
+</section>

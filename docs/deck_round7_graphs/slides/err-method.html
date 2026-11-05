@@ -1,0 +1,11 @@
+<section id="err-method" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:36px">
+<h2 style="font-size:60px;font-weight:600">Accuracy against error, with the buckets dropped</h2>
+<ul style="font-size:31px;line-height:1.45;display:flex;flex-direction:column;gap:24px">
+<li>x axis is the question's accuracy, the share of its attempts that were correct. No banding.</li>
+<li>y axis is per-question error: squared error for entropy, root squared error in tokens for length.</li>
+<li>Both predictors are shown: <b>our probe</b> and the <b>black box monitor</b>, GPT-6 Luna zero-shot, raw and calibrated.</li>
+<li><b>Your expectation holds.</b> On MMLU-Pro, entropy error runs 0.387, 0.412, 0.403, 0.357, 0.250, 0.160 as accuracy goes 0 to 1.</li>
+<li>The qualifier: the bin's own average runs 0.536 to 0.095 over the same range, so the probe wins 5 of 6 bins and loses only where every attempt was correct.</li>
+</ul>
+<aside>Both row sets are drawn and labelled on the figure: the ICL rows, which are the only rows the monitor was run on, and the full sweep rows, which have no monitor but 5 times the data. The number above each point is that bin's question count, so thin bins are visible rather than hidden.</aside>
+</section>

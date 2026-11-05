@@ -1,0 +1,10 @@
+<section id="caveats" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:36px">
+<h2 style="font-size:60px;font-weight:600">Four things to hold in mind when reading these</h2>
+<ul style="font-size:30px;line-height:1.45;display:flex;flex-direction:column;gap:24px">
+<li><b>Row sets differ and are labelled on every panel.</b> The monitor was only run on the ICL rows, one chain per question per cut. The full sweep rows are about 5 times larger but have no monitor. A number from one is not comparable with a number from the other.</li>
+<li><b>MMLU-Pro difficulty is coarse.</b> Five rollouts per question means p_gold takes 11 values and about 65 percent of questions sit at exactly 0 or 1, so its outer two bands are each a single value. Read its middle bands.</li>
+<li><b>Never put a raw and a log R squared on one axis.</b> The length conclusion reverses between them, and that reversal is the finding, not a nuisance.</li>
+<li><b>The degenerate cells are real, not artefacts.</b> Where the truth is nearly constant, the probe's predictions still vary and so add error. Recentring removes part of it; the rest is genuine over-prediction of uncertainty on easy questions.</li>
+</ul>
+<aside>Also done but not shown here: the GlobalOpinionQA consistency axis, which replaces difficulty for the dataset with no gold answer. That work turned up a data defect worth knowing about: the human survey disagreement column is identically zero for 848 of 2,554 questions because only one country was surveyed there, so those have to be dropped before the column means anything.</aside>
+</section>

@@ -1,0 +1,9 @@
+<section id="icl-checks" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<h2 style="font-size:60px;font-weight:600">Two things the in-context runs keep telling us</h2>
+<ul style="font-size:36px;line-height:1.45;display:flex;flex-direction:column;gap:34px">
+<li>Examples hurt. Zero-shot wins on every target, in four model and dataset pairs. They supply the output scale and wreck the ranking.</li>
+<li>Hiding the prefix depth costs only the length targets. A sanity check that the setup is wired correctly, on all three datasets.</li>
+</ul>
+<p style="font-size:33px;line-height:1.4">So for prompt optimisation, only the instruction is worth optimising. Selecting examples optimises toward using none.</p>
+<aside>Detail if asked. Examples hurt: ten examples below zero examples on every target, in Gemma on GPQA, Luna on GPQA, Luna on MMLU-Pro and Luna on GlobalOpinionQA. The mechanism is measured, not guessed: within-cut correlation fell versus zero-shot in 28 of 28 comparisons across two model families, while the predicted spread moved closer to the truth. Because we calibrate the in-context predictions per fold, the scale gain is given away free and only the ranking damage shows up in the score. Classic anchoring is NOT what happens, the predicted spread widens rather than shrinking to the example mean, and verbatim copying of example values is real but modest and entropy only, plus 0.08 to 0.29 over a chance baseline. Hiding depth: on MMLU-Pro it changes entropy by 0.005 and commitment by 0.001, both noise, but costs 0.081 on remaining length and 0.077 on length spread. The model uses the depth label exactly where depth is informative and ignores it elsewhere.</aside>
+</section>

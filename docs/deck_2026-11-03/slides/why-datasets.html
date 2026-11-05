@@ -1,0 +1,10 @@
+<section id="why-datasets" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-size:60px;font-weight:600">Why these two datasets</h2>
+<ul style="font-size:32px;line-height:1.45;display:flex;flex-direction:column;gap:26px">
+<li>Our own allocation result said so. At a fixed rollout budget, many questions with few chains each beats few questions with many chains. 150 questions x 2 chains scored about the same as 30 questions x 25 chains. A new question is worth roughly 3.5x a new chain.</li>
+<li>GPQA was too small to settle anything. 198 questions gave intervals of about plus or minus 0.06 R squared, and the comparisons we care about are differences of 0.02 to 0.05, so they sat inside the noise.</li>
+<li>MMLU-Pro: objective, same shape, 12.6x the questions. Multiple choice with a gold answer, like GPQA. Isolates one variable: were our findings power-limited?</li>
+<li>GlobalOpinionQA: subjective, no gold answer at all. Opinion questions with no correct response. Tests whether the probe needs correctness to work, or only needs the answer distribution to be concentrated.</li>
+</ul>
+<aside>The allocation result is round 4, idea 1. GlobalOpinionQA matters because p_gold is null on all 63,684 of its label rows, so every accuracy-based target and our original difficulty measure are simply unavailable there. Commitment still works, because it measures concentration of the answer distribution, not correctness.</aside>
+</section>

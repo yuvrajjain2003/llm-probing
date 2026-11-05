@@ -1,0 +1,20 @@
+<section id="takeaways" style="background:#ffffff;color:#111111;font-family:Arial, Helvetica, sans-serif;padding:128px;display:flex;flex-direction:column;gap:32px">
+<h2 style="font-size:56px;font-weight:600">Takeaways, and what we would like to decide</h2>
+<p style="font-size:32px;font-weight:600">What we now believe</p>
+<ul style="font-size:27px;line-height:1.4;display:flex;flex-direction:column;gap:12px">
+<li>The frontier tie was a power problem. On 2,500 questions our probe beats it, on all five targets on MMLU-Pro.</li>
+<li>The probe is a question-level reader, not merely a difficulty reader. GPQA's difficulty collapse does not replicate on either new dataset.</li>
+<li>Removing difficulty widens our lead over text on both large datasets, and only erases it on GPQA.</li>
+<li>It is a depth effect. Shallow prefixes are mostly difficulty, deep prefixes mostly are not. Averaging over depth hid this.</li>
+<li>"Just counting tokens" is a scale artefact. On a log scale we beat prefix length at every cut on all three datasets.</li>
+</ul>
+<p style="font-size:32px;font-weight:600">Questions for you</p>
+<ul style="font-size:27px;line-height:1.4;display:flex;flex-direction:column;gap:12px">
+<li>Which is the paper? "Question-level but not text-recoverable", or the depth effect? They point at different experiments next.</li>
+<li>Is MMLU-Pro's entropy margin enough? It is significant but its interval edge is 0.001 from zero. More rows, or accept it?</li>
+<li>Commitment is our least settled target. Accuracy and AUC disagree on GlobalOpinionQA, and the AUC sign flips on an arbitrary grid choice (+0.009 or -0.003 against TF-IDF). It was also never partialled. Fix the convention, or drop it?</li>
+<li>Third dataset, or go deeper on these two?</li>
+<li>The strongest baseline is still another LLM's activations, not text. Should that be the headline comparison?</li>
+</ul>
+<aside>If he presses on commitment, concede it: four problems at once. Accuracy and AUC disagree in sign on GlobalOpinionQA (accuracy 0.690 ours against 0.693 TF-IDF, AUC 0.683 against 0.674); the AUC depends on which logistic grid was used and nothing in the files records it (ours 0.683 shallow, 0.671 deep, which flips our advantage from +0.009 significant to -0.003 not significant); the ICL AUC check that overturned "commitment ties" on GPQA has not been run on either new dataset; and at GPQA's 90 percent cut the accuracy is just the base rate. On the last point: OLMo-3-7B, which shares no lineage with our model, ties us on all five targets on GPQA. That is the comparison a referee will reach for, and we have never run it on the new datasets.</aside>
+</section>

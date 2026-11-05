@@ -1,0 +1,51 @@
+{
+  "v": 4,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-02T22:40:00Z"
+  },
+  "lists": "css",
+  "title": "Probing future reasoning: three datasets (3 Nov 2026)",
+  "cover": "cover",
+  "order": [
+    "cover",
+    "whats-new",
+    "why-datasets",
+    "datasets-table",
+    "probe-three",
+    "frontier-gpqa",
+    "frontier-mmlupro",
+    "frontier-globalop",
+    "icl-checks",
+    "bands-gpqa",
+    "bands-mmlupro",
+    "bands-globalop",
+    "bands-timid",
+    "difficulty-method",
+    "difficulty-result",
+    "difficulty-depth",
+    "difficulty-vs-text",
+    "loglen",
+    "gepa"
+  ],
+  "sections": {
+    "s1": {
+      "description": "What changed, and why we added two datasets",
+      "start": "cover"
+    },
+    "s2": {
+      "description": "The frontier model against our probe, with confidence intervals, on all three datasets",
+      "start": "frontier-gpqa"
+    },
+    "s3": {
+      "description": "Difficulty as a confounder: bands first, then partialling",
+      "start": "bands-gpqa"
+    },
+    "s4": {
+      "description": "Measurement scale, prompt optimisation, and what we want to decide",
+      "start": "loglen"
+    }
+  },
+  "faces": {},
+  "designSystems": []
+}
