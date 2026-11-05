@@ -889,3 +889,38 @@ GPQA passed 4,910 of 4,910 bitwise.
   because entropy is estimated directly from the distribution over rollouts and so degrades fastest
   when chains per question drop, whereas remaining length is a mean over chains and is well behaved
   at small counts. Getting the predicted shape, not just a small number, is what makes it a check.
+- 2026-11-05 (item 7): **The batch-size hypothesis for the fp16 capture differences was WRONG, and the
+  way it died is worth copying.** Recapturing both new datasets at `--batch-size 2` (matching the batch
+  size at which GPQA came out bitwise identical) moved the bitwise rate from 98.04 to 98.80 percent on
+  globalop and from 66.70 to 67.00 percent on mmlupro, and left `max_abs_diff` unchanged at 3.0 and 4.0.
+  **The decisive detail is that mmlupro's worst cosine, 0.999672949, reproduced to nine decimal places
+  across two different batch sizes.** A deviation that reproduces bit-for-bit under a changed batching
+  is deterministic and cannot be a batching artefact. Lesson: when ruling a cause in or out, look for a
+  quantity that should have MOVED and did not, not just at whether the headline rate improved a little.
+- 2026-11-05 (item 7): **Say out loud when a hypothesis-chasing loop should stop, and price it.** After
+  misalignment, duplicate keys and batch size were all ruled out, the remaining candidates were vLLM
+  version and kernel autotuning, chunked prefill, and which physical node and GPU the capture landed on
+  - none of which can be matched to a store a collaborator captured on another cluster a month earlier.
+  The measured stake was 1.3e-5 to 2.6e-5 in R2 against a CI half-width of 0.015. At that point the
+  honest move is to hand the user a two-option decision (relax the gate and label the result
+  "numerically equivalent, not bitwise identical", or ship the result on the one dataset that passes)
+  rather than spend more GPU hours. **Writing the decision down with its price is part of the work.**
+- 2026-11-04 (reporting): **A correctness gate that blocks its own downstream chain is worth the extra
+  code, and it paid off twice here.** `pool` raises `SystemExit` on a failed gate and every later stage
+  is `afterok`, so two bad datasets produced zero believable probe numbers and 20 jobs sat unrun instead.
+  The cost is that `squeue` fills with `DependencyNeverSatisfied` entries that will never clear on their
+  own - cancel them when you record the failure, or the next session reads a queue full of ghosts.
+- 2026-11-04 (deliverables): **`reportlab` is not installed in any env on this box.** The working route
+  to a PDF here is pandoc + pdflatex. For a figures-only PDF, floats will silently push images onto
+  blank pages: `\usepackage{float}` plus `\floatplacement{figure}{H}` pins them, which took a 12-page
+  draft down to 7. `\pagestyle{empty}` drops page numbers.
+- 2026-11-04 (deliverables): **Save a deck's slide sources into `docs/` the day it is built.** The
+  session scratchpad is deleted when the session ends, and the 2026-10-27 deck had already lost its
+  source that way once. Both the round-7 graphs deck and the 2026-11-03 meeting deck were copied to
+  `docs/deck_round7_graphs/` and `docs/deck_2026-11-03/` on 2026-11-05 for exactly this reason. Note
+  the local copy can lag the live artifact, since the user edits pages in the Slides app: read the live
+  page before republishing.
+- 2026-11-04 (user preference, now recorded twice): **"Just the graphs" means just the graphs.** A
+  9-page PDF with a summary page, section headers and a caveats page was rejected; what he wanted was
+  one figure per page with two lines of explanation above it and nothing else. The same instinct as the
+  standing "no styling at all" rule for slides. Default to less front matter than feels complete.
